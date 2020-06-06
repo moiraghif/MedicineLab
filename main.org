@@ -1,0 +1,353 @@
+#+TITLE: *Big Data in Healt Care*
+#+AUTHOR: Federico Moiraghi - 799735
+#+DATE: A.A. 2019/2020
+#+OPTIONS: toc:nil
+#+LANGUAGE: it
+
+#+LATEX_CLASS: article
+#+LATEX_CLASS_OPTIONS: [a4paper, 12pt]
+
+* Abstract :ignore:
+#+begin_abstract
+Obiettivo del presente Progetto è di fornire un modello predittivo che riesca a riconoscere i tumori omogenei da quelli eterogenei.
+Infatti l'eterogeneità del tumore rappresenta una difficoltà aggiuntiva nella fase di trattamento, rendendolo maggiormente resistente alle cure.
+Il modello risultante dal presente Progetto sarà facilmente interpretabile da un esperto di dominio, in modo tale da supportare le sue decisioni e non sostituirsi completamente ad esso.
+#+end_abstract
+
+* Indice :ignore:
+#+TOC: headlines 1
+#+LATEX: \thispagestyle{empty}
+#+LATEX: \newpage
+
+
+* Introduzione
+Si è deciso di utilizzare per il presente Progetto il linguaggio di programmazione =R=, dato che il suo uso all'interno di ospedali e centri di ricerca è in forte crescita.
+Grazie alla libreria [[https://cran.r-project.org/web/packages/RNifti/readme/README.html][=RNifti=]] è possibile importare i file =.nii= (contenenti le lesioni oncologiche), facilitando sia l'analisi esplorativa sia la successiva costruzione del modello.
+
+#+BEGIN_SRC R :session :tangle yes :exports none :results none
+rm(list = ls())
+set.seed(201920)
+
+library(RNifti)
+library(tidyverse)
+
+
+basic_path <- "./code__esempi/lesions"
+classes <- c("heterogeneous", "homogeneous")
+paths <- paste(basic_path, classes, "nifti/", sep="/")
+
+files_heterogeneous <- paste0(paths[1], list.files(paths[1]))
+files_homogeneous   <- paste0(paths[2], list.files(paths[2]))
+files_class <- rep.int(c(1, 0),
+                       times = purrr::map_int(list(files_heterogeneous,
+                                                   files_homogeneous),
+                                              length))
+files <- tibble::tibble(
+  filename = c(files_heterogeneous, files_homogeneous),
+  heterogeneous = files_class)
+files <- files[sample(1:nrow(files)), ]
+
+
+read_nii <- function(file_path) {
+  clean <- function(im) {
+    clean_x <- function(im) {
+      return(im[purrr::keep(1:dim(im)[1],
+                            ~!all(is.na(im[.x, , ]))), ,])
+    }
+    clean_y <- function(im) {
+      return(im[, purrr::keep(1:dim(im)[2],
+                              ~!all(is.na(im[, .x, ]))), ])
+    }
+    clean_z <- function(im) {
+      return(im[, , purrr::keep(1:dim(im)[3],
+                                ~!all(is.na(im[, , .x])))])
+    }
+    clean_image <- purrr::compose(clean_x, clean_y, clean_z)
+    out <- clean_image(im)
+    pixdim(out) <- pixdim(im)
+    return(out)
+  }
+  image <- RNifti::readNifti(file_path)
+  image[image == 0] <- NA
+  return(clean(image))
+}
+#+END_SRC
+
+#+BEGIN_SRC R :session :exports none :results none
+image_test <- read_nii(files$filename[1])
+#+END_SRC
+
+Caricate le immagini (si ha un esempio con figura [[section_example]]), si nota che queste rappresentano la lesione già segmentata.
+Prima dell'analisi vera e propria è necessario ritagliare l'immagine, eliminando il valore dei /voxel/ esterni alla lesione: questi infatti hanno valore nullo, mentre, per aumentare l'efficienza del /workflow/, si preferisce eliminare tali valori rendendoli non definiti (=NA=).
+
+#+BEGIN_SRC R :session :exports results :results file graphics :file images/sample.png
+par(mfrow = c(3, 3))
+for (i in 1:9) {
+  image(image_test[, , i])
+}
+par(mfrow = c(1, 1))
+#+END_SRC
+
+#+LABEL: section_example
+#+CAPTION: Esempio di immagine. Essendo una figura tridimensionale, si rappresenta la profondità con più immagini.
+#+RESULTS:
+[[file:images/sample.png]]
+
+
+Mentre le dimensioni dei /voxel/ sono fisse per tutti i files (tabella [[tbl_voxel_dim]]), l'immagine è ritagliata sulla lesione in modo specifico, tralasciando le parti adiacenti: le dimensioni variano in base alla dimensione della lesione stessa.
+
+#+BEGIN_SRC R :session :exports results :results table :rownames yes
+voxel_dim <- round(pixdim(image_test), 2)
+names(voxel_dim) <- c("x", "y", "z")
+voxel_dim
+#+END_SRC
+
+#+LABEL: tbl_voxel_dim
+#+CAPTION: Dimensioni dei /voxel/ sugli assi $x$, $y$ e $z$.
+#+RESULTS:
+| x | 2.73 |
+| y | 2.73 |
+| z | 3.27 |
+
+Dunque sarà importante estrarre delle /features/ che non dipendano dalla dimensione dell'immagine ma tengano conto di possibili variazioni.
+Questo approccio comporta una serie di vantaggi, primo tra tutti la modularità del /workflow/: è possibile così prevedere la variabile risposta avendo a disposizione sia un'immagine già segmentata sia effettuando la segmentazione /on-the-fly/ tramite semplici algoritmi a soglia.
+
+* Estrazione delle /features/
+L'estrazione delle /features/ mappa le immagini in uno spazio di dimensionalità molto minore, rendendo più semplice l'analisi dato il numero esiguo di dati a disposizione.
+Infatti, un qualsiasi algoritmo di /machine learning/ ha bisogno di un numero significativo di dati per  ``apprendere'' in modo /data-driven/ cosa utilizzare nell'analisi.
+
+#+BEGIN_SRC R :session :tangle yes :exports none :results none
+get_area <- function(image) {
+  xyz <- dim(image)
+  voxel_dim <- prod(pixdim(image))
+  out <- 0
+  for (x in 1:xyz[1])
+    for (y in 1:xyz[2])
+      for (z in 1:xyz[3])
+        if (!is.na(image[x, y, z])) {
+          lim_x <- c(max(x - 1, 0), min(x + 1, xyz[1]))
+          lim_y <- c(max(y - 1, 0), min(y + 1, xyz[2]))
+          lim_z <- c(max(z - 1, 0), min(z + 1, xyz[3]))
+          intorno <- image[seq(lim_x[1], lim_x[2]),
+                           seq(lim_y[1], lim_y[2]),
+                           seq(lim_z[1], lim_z[2])]
+          if (anyNA(intorno) || (x %in% lim_x || y %in% lim_y || z %in% lim_z))
+            out <- out + voxel_dim
+        }
+  return(out)
+}
+
+skewness <- function(image) {
+  image_clean <- image[!is.na(image)]
+  return(mean(((image_clean - mean(image_clean)) / sd(image_clean))^3))
+}
+
+kurtosis <- function(image) {
+  image_clean <- image[!is.na(image)]
+  return(mean(((image_clean - mean(image_clean)) / sd(image_clean))^4))
+}
+
+extract_features <- function(image_path) {
+  image <- read_nii(image_path)
+  voxel_dim <- pixdim(image)
+  image.mean <- mean(image, na.rm = TRUE)
+  image.sd   <- sd(image, na.rm = TRUE)
+  image.sk   <- skewness(image)
+  image.kurt <- kurtosis(image)
+  image.volume <- prod(voxel_dim) * sum(! is.na(image))
+  image.sphere <- pi * 4/3 * (max(voxel_dim * dim(image)) / 2)^3
+  return(c(image.mean, image.sd, image.sk, image.kurt, image.volume, image.sphere, get_area(image[,,])))
+}
+#+END_SRC
+
+Per selezionare le /features/ da utilizzare, si è preso spunto da cite:imaging[fn::Gli autori usano i primi quattro momenti per stimare la differenza di eterogeneità di tumori alla cervicale nel tempo, a seguito di un trattamento.]: si usano i momenti dal primo fino al quarto (media, varianza, asimmetria e curtosi) dei valori dei /voxel/ che raffigurano la lesione oncologica.
+A questi però si è deciso di aggiungere anche il volume della lesione (=volume=) e della sfera equivalente (=sphere=), così come anche la superficie (=area=) della lesione (figura [[tbl_features]]).
+Purtroppo, non essendo stata specificata l'unità di misura dei /voxel/, non è possibile stabilirla nemmeno per le /features/ ricavate; tuttavia si presume che il proprietario dei dati sia in possesso di tale informazione e che quindi riesca ad attribuire maggiore semantica.
+
+#+BEGIN_SRC R :session :tangle yes :exports none :results none
+features <- tibble::as.tibble(t(purrr::map_dfc(files$filename, extract_features)))
+names(features) <- c("mean", "sd", "sk", "kurt", "volume", "sphere", "area")
+features$y <- files$heterogeneous
+#+END_SRC
+
+#+BEGIN_SRC R :session :exports results :results table :colnames yes
+round(head(features), 2)
+#+END_SRC
+
+#+LABEL: tbl_features
+#+CAPTION: Esempio di /features/ estratte per le singole immagini.
+#+RESULTS:
+|     mean |       sd |    sk | kurt |   volume |   sphere | area | y |
+|----------+----------+-------+------+----------+----------+------+---|
+| 96823.09 | 35401.18 | -0.19 | 1.75 |  8630.55 | 13346.56 |  267 | 0 |
+| 55147.27 | 24818.35 |  0.55 | 2.85 | 11711.15 | 31636.29 |  367 | 1 |
+| 20578.91 |  6490.54 |  0.03 | 2.03 | 10268.65 |    24368 |  301 | 0 |
+| 65241.17 | 24333.68 | -0.22 | 1.85 |  8410.51 | 13346.56 |  265 | 0 |
+| 26578.46 | 11707.49 |  1.03 | 4.15 |  8997.29 | 18497.65 |  307 | 1 |
+| 55579.68 |   9507.4 | -0.66 | 2.89 |   5818.9 |    24368 |  211 | 0 |
+
+
+La matrice dei dati risultante è quindi di dimensioni $44 \times 7$ (si esclude la variabile risposta), indipendentemente dalla dimensione delle immagini di partenza o dalla loro risoluzione.
+
+Prima di procedere con la costruzione del modello, si preferisce effettuare una rapida analisi esplorativa sulla nuova matrice per verificare quali varibili includere.
+#+BEGIN_SRC R :session :exports results :results file graphics :file images/corrplot.png
+library(ggcorrplot)
+ggcorrplot::ggcorrplot(
+              cor(features),
+              type = "lower",
+              outline.col = "white",
+              lab = TRUE)
+#+END_SRC
+
+#+LABEL: features_corr
+#+CAPTION: Correlogramma delle /features/ estratte.
+#+RESULTS:
+[[file:images/corrplot.png]]
+
+Non è necessario effettuare alcun test per confermare la correlazione (figura [[features_corr]]) tra area, volume della lesione e volume della sfera equivalente.
+Pertanto, in fase di scelta delle /features/ del modello, si dovrà decidere qual è la più utile ai fini predittivi e inferenziali.
+
+* Costruzione del modello
+Essendo la variabile risposta binaria (tumore /omogeneo/ o /eterogeneo/, rispettivamente 0 o 1), e volendo costruire un modello facilmente interpretabile per un esperto di dominio, si effettua una semplice regressione logistica.
+
+#+BEGIN_SRC R :session :tangle yes :exports none :results none
+library(MASS)
+
+train_index <-  1:35
+test_index  <- 36:nrow(features)
+
+train_set <- features[train_index, ]
+test_set  <- features[test_index,  ]
+
+
+predict_model <- function(mod, data) {
+  y_hat <- ifelse(predict(mod, data) > 0.5, 1, 0)
+  return(mean(y_hat == data$y))
+}
+
+
+mod_full <- glm(y ~ 1 + mean + sk + kurt + volume,
+           data = train_set,
+           family = binomial("logit"))
+mod <- stepAIC(mod_full, direction = "both")
+#+END_SRC
+
+La selezione delle /features/ è effettuata tramite procedimento /stepwise/ (partendo dal modello pieno ed eliminando le variabili superflue, ma con la possibilità, a ogni iterazione, di reinserirle).
+Si è deciso di rimuovere alcune variabili a prescindere:
+- =sd= (la varianza della distribuzione della lesione), in quanto fortemente correlata con =mean= (0.93) e di più difficile interpretazione;
+- =area= (la superficie della lesione), in quanto la sua stima è approssimativa e risulta essere eccessivamente correlata ad altri regressori, inquinando eccessivamente la qualità dei dati;
+- =sphere= (il volume della sfera equivalente), data la sua forte correlazione con la variabile =volume= (0.86) e la più difficile interpretabilità.
+#+LATEX: \newline
+Avendo a disposizione pochi dati, il procedimento è effettuato con l'indice AIC, che considera la capacità di generalizzazione del modello complessivo risultante (salvo poi verificare le /performance/ su un /test set/ composto da dati nuovi, rappresentante circa il 20% di quelli totali).
+Alla fine del procedimento, il modello risultante comprende solo tre regressori (più l'intercetta), come mostrato in tabella [[tbl_model_coeff]].
+
+#+BEGIN_SRC R :session :exports results :results tabular :colnames yes :rownames yes
+df <- summary(mod)$coefficients[, c(1, 4)]
+colnames(df) <- c("Stima", "p-value")
+round(df, 6)
+#+END_SRC
+
+#+LABEL: tbl_model_coeff
+#+CAPTION: Stima dei coefficienti del modello e loro significatività.
+#+RESULTS:
+|             |      Stima |  p-value |
+|-------------+------------+----------|
+| (Intercept) | -43.546644 | 0.009188 |
+| sk          |  11.726844 | 0.010101 |
+| kurt        |   12.31375 | 0.014156 |
+| volume      |   0.001266 | 0.011203 |
+| sphere      |   0.000257 | 0.088499 |
+
+
+Si noti come i coefficienti maggiormente significativi siano l'asimmetria =sk= e il volume =volume=: la probabilità che il tumore sia eterogeneo è tanto maggiore quanto più grande è la lesione e quanto più pesante è la coda positiva della distribuzione.
+Si può ipotizzare infatti che questa coda positiva sia costituita da sotto-componenti particolarmente aggressivi del tumore, quindi ``ghiotti'' di traccianti e di conseguenza maggiormente visibili nell'immagine.
+
+#+BEGIN_SRC R :session :exports results :results tabular :colnames yes :rownames yes
+previsions <- data.frame(prevision = ifelse(predict(mod, test_set) > 0.5,
+                                            "heterogeneous",
+                                            "homogeneous"),
+                         real = ifelse(test_set$y == 1,
+                                       "heterogeneous",
+                                       "homogeneous"))
+conf_matrix <- table(previsions)
+#+END_SRC
+
+#+LABEL: mod_confusion_matrix
+#+CAPTION: Matrice di confusione del modello di regressione logistica per il /test set/; sulle righe le previsioni e sulle colonne i valori reali.
+#+RESULTS:
+|               | heterogeneous | homogeneous |
+|---------------+---------------+-------------|
+| heterogeneous |             2 |           1 |
+| homogeneous   |             0 |           6 |
+
+
+Come si può notare nella matrice di confusione (figura [[mod_confusion_matrix]]), il modello ha commesso un solo errore catalogando come eterogenea una lesione omogenea.
+
+#+BEGIN_SRC R :session :exports results :results tabular :rownames yes
+accuracy  <- sum(diag(conf_matrix)) / sum(conf_matrix)
+precision <- conf_matrix["heterogeneous", "heterogeneous"] /
+                  sum(conf_matrix["heterogeneous", ])
+recall    <- conf_matrix["heterogeneous", "heterogeneous"] /
+                  sum(conf_matrix[, "heterogeneous"])
+f1        <- 2 * (precision * recall) / (precision + recall)
+round(c("accuracy" = accuracy,
+        "precision" = precision,
+        "recall" = recall,
+        "f_1" = f1), 2)
+#+END_SRC
+
+#+LABEL: mod_results
+#+CAPTION: Indici di accuratezza per il modello.
+#+RESULTS:
+| accuracy  | 0.89 |
+| precision | 0.67 |
+| recall    |    1 |
+| f_1       |  0.8 |
+
+
+* Conclusioni
+Con questo Progetto si è costruito un modello statistico efficace e facilmente interpretabile da un esperto di dominio per prevedere l'eterogeneità del tumore.
+Si è visto che, estrapolando dall'immagine dei semplici valori indice, è possibile costruire un modello indipendente dalla dimensione dell'immagine o dalla sua risoluzione.
+#+LATEX: \newline
+A livello matematico si potrebbe aumentare la prestazione del modello stimando i parametri con un numero maggiore di dati; tuttavia, in ambito medico, questo non è sempre possibile (anche perché, come espresso in cite:imaging, è possibile verificare l'eterogeneità del tumore solo in modo invasivo o con autopsia).
+Inoltre si potrebbero utilizzare nuove /features/, soprattutto se utili ai fini della ricerca medica.
+#+BEGIN_SRC R :session :tangle yes :exports none :results none
+summary(mod)
+#+END_SRC
+
+
+* Bibliografia :ignore:
+ #+LATEX: \newpage
+#+LATEX: \nocite{*}
+bibliographystyle:unsrt
+bibliography:./bibliografia.bib
+#+BEGIN_SRC bibtex :tangle bibliografia.bib :exports none
+@article{imaging,
+  author = {Bowen, Stephen and
+            Yuh, William and
+            Hippe, Daniel and
+            Wu, Wei and
+            Partridge, Savannah and
+            Elias, Saba and
+            Jia, Guang and
+            Huang, Zhibin and
+            Sandison, George and
+            Nelson, Dennis and
+            Knopp, Michael and
+            Lo, Simon and
+            Kinahan, Paul and
+            Mayr, Nina},
+  year = {2017},
+  month = {10},
+  pages = {},
+  title = {Tumor radiomic heterogeneity: Multiparametric functional imaging to characterize variability and predict response following cervical cancer radiation therapy},
+  volume = {47},
+  journal = {Journal of Magnetic Resonance Imaging},
+  doi = {10.1002/jmri.25874}
+}
+#+END_SRC
+#+begin_comment
+Local variables:
+org-latex-caption-above: nil
+End:
+#+end_comment
