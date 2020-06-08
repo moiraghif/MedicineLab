@@ -71,6 +71,27 @@ read_nii <- function(file_path) {
   image[image == 0] <- NA
   return(clean(image))
 }
+
+get_range <- function(files) {
+  lim <- Inf
+  Lim <- -Inf
+  for (file in files) {
+    image <- read_nii(file)
+    d <- range(image, na.rm = TRUE)
+    if (lim > d[1]) lim <- d[1]
+    if (Lim < d[2]) Lim <- d[2]
+  }
+  return(c(lim, Lim))
+}
+
+read_standardize <- function(range) {
+  function(file_path) {
+    out <- read_nii(file_path)
+    return((out - range[1]) / range[2])
+  }
+}
+
+read_file <- read_standardize(get_range(files$filename))
 #+END_SRC
 
 #+BEGIN_SRC R :session :exports none :results none
@@ -148,7 +169,7 @@ kurtosis <- function(image) {
 }
 
 extract_features <- function(image_path) {
-  image <- read_nii(image_path)
+  image <- read_file(image_path)
   voxel_dim <- pixdim(image)
   image.mean <- mean(image, na.rm = TRUE)
   image.sd   <- sd(image, na.rm = TRUE)
@@ -177,14 +198,14 @@ round(head(features), 2)
 #+LABEL: tbl_features
 #+CAPTION: Esempio di /features/ estratte per le singole immagini.
 #+RESULTS:
-|     mean |       sd |    sk | kurt |   volume |   sphere | area | y |
-|----------+----------+-------+------+----------+----------+------+---|
-| 96823.09 | 35401.18 | -0.19 | 1.75 |  8630.55 | 13346.56 |  267 | 0 |
-| 55147.27 | 24818.35 |  0.55 | 2.85 | 11711.15 | 31636.29 |  367 | 1 |
-| 20578.91 |  6490.54 |  0.03 | 2.03 | 10268.65 |    24368 |  301 | 0 |
-| 65241.17 | 24333.68 | -0.22 | 1.85 |  8410.51 | 13346.56 |  265 | 0 |
-| 26578.46 | 11707.49 |  1.03 | 4.15 |  8997.29 | 18497.65 |  307 | 1 |
-| 55579.68 |   9507.4 | -0.66 | 2.89 |   5818.9 |    24368 |  211 | 0 |
+| mean |   sd |    sk | kurt |   volume |   sphere | area | y |
+|------+------+-------+------+----------+----------+------+---|
+| 0.48 | 0.19 | -0.19 | 1.75 |  8630.55 | 13346.56 |  267 | 0 |
+| 0.26 | 0.13 |  0.55 | 2.85 | 11711.15 | 31636.29 |  367 | 1 |
+| 0.08 | 0.03 |  0.03 | 2.03 | 10268.65 |    24368 |  301 | 0 |
+| 0.32 | 0.13 | -0.22 | 1.85 |  8410.51 | 13346.56 |  265 | 0 |
+| 0.12 | 0.06 |  1.03 | 4.15 |  8997.29 | 18497.65 |  307 | 1 |
+| 0.27 | 0.05 | -0.66 | 2.89 |   5818.9 |    24368 |  211 | 0 |
 
 
 La matrice dei dati risultante è quindi di dimensioni $44 \times 7$ (si esclude la variabile risposta), indipendentemente dalla dimensione delle immagini di partenza o dalla loro risoluzione.
@@ -213,24 +234,81 @@ Essendo la variabile risposta binaria (tumore /omogeneo/ o /eterogeneo/, rispett
 #+BEGIN_SRC R :session :tangle yes :exports none :results none
 library(MASS)
 
-train_index <-  1:35
-test_index  <- 36:nrow(features)
 
-train_set <- features[train_index, ]
-test_set  <- features[test_index,  ]
-
-
-predict_model <- function(mod, data) {
+accuracy <- function(mod, data) {
   y_hat <- ifelse(predict(mod, data) > 0.5, 1, 0)
   return(mean(y_hat == data$y))
 }
 
+precision <- function(mod, data) {
+  y_hat <- ifelse(predict(mod, data) > 0.5, 1, 0)
+  tp <- mean(y_hat == 1 & data$y == 1)
+  fp <- mean(y_hat == 1 & data$y == 0)
+  return(tp / (tp + fp))
+}
 
-mod_full <- glm(y ~ 1 + mean + sk + kurt + volume,
-           data = train_set,
-           family = binomial("logit"))
-mod <- stepAIC(mod_full, direction = "both")
+recall <- function(mod, data) {
+  y_hat <- ifelse(predict(mod, data) > 0.5, 1, 0)
+  tp <- mean(y_hat == 1 & data$y == 1)
+  fn <- mean(y_hat == 0 & data$y == 1)
+  if (fn == 0) return(1)
+  return(tp / (tp + fn))
+}
+
+f1 <- function(mod, data) {
+  p <- precision(mod, data)
+  r <- recall(mod, data)
+  return(2 * p * r / (p + r))
+}
+
+
+k <- 5
+dim_fold <- 4
+out <- list(accuracy = c(),
+            precision = c(),
+            recall = c(),
+            f_1 = c())
+for (i in seq(1, 11)) {
+  j <- (i - 1) * 4 + 1
+  test_index <- seq(j, j + dim_fold - 1)
+  train_set <- features[-test_index, ]
+  test_set  <- features[ test_index, ]
+
+  mod <- glm(y ~ 1 + mean + sd + sk + kurt + I(volume/sphere),
+             data = train_set,
+             family = binomial("logit"))
+  out$accuracy <- c(out$accuracy, accuracy(mod, test_set))
+  out$precision <- c(out$precision, precision(mod, test_set))
+  out$recall <- c(out$recall, recall(mod, test_set))
+  out$f_1 <- c(out$f_1, f1(mod, test_set))
+}
 #+END_SRC
+#+BEGIN_SRC R :session :exports results :results table :rownames yes :colnames yes
+out_df <- data.frame(index = c("accuracy", "precision", "recall", "f_1"))
+scores <- c()
+idc <- c()
+for (index in out_df$index) {
+  score <- out[[index]]
+  score <- score[!is.nan(score)]
+  mu <- mean(score)
+  s  <- sd(score)
+  d <- qt(0.99, length(score) - 1) * s / sqrt(length(score))
+  scores <- c(scores, mu)
+  idc <- c(idc, d)
+}
+out_df$average <- scores
+out_df$IDC_99   <- idc
+rownames(out_df) <- out_df$index
+round(out_df[, c("average", "IDC_99")], 3)
+#+END_SRC
+
+#+RESULTS:
+|           | average | IDC_99 |
+|-----------+---------+--------|
+| accuracy  |    0.75 |  0.161 |
+| precision |   0.833 |  0.341 |
+| recall    |   0.561 |  0.293 |
+| f_1       |   0.725 |  0.128 |
 
 La selezione delle /features/ è effettuata tramite procedimento /stepwise/ (partendo dal modello pieno ed eliminando le variabili superflue, ma con la possibilità, a ogni iterazione, di reinserirle).
 Si è deciso di rimuovere alcune variabili a prescindere:
@@ -250,13 +328,14 @@ round(df, 6)
 #+LABEL: tbl_model_coeff
 #+CAPTION: Stima dei coefficienti del modello e loro significatività.
 #+RESULTS:
-|             |      Stima |  p-value |
-|-------------+------------+----------|
-| (Intercept) | -43.546644 | 0.009188 |
-| sk          |  11.726844 | 0.010101 |
-| kurt        |   12.31375 | 0.014156 |
-| volume      |   0.001266 | 0.011203 |
-| sphere      |   0.000257 | 0.088499 |
+|                  |      Stima |  p-value |
+|------------------+------------+----------|
+| (Intercept)      |   -7.03308 | 0.038373 |
+| mean             |  13.513302 | 0.146777 |
+| sd               | -20.568641 | 0.365802 |
+| sk               |   3.278198 | 0.051348 |
+| kurt             |   1.887082 | 0.129189 |
+| I(volume/sphere) |   1.653833 | 0.506789 |
 
 
 Si noti come i coefficienti maggiormente significativi siano l'asimmetria =sk= e il volume =volume=: la probabilità che il tumore sia eterogeneo è tanto maggiore quanto più grande è la lesione e quanto più pesante è la coda positiva della distribuzione.
@@ -275,10 +354,9 @@ conf_matrix <- table(previsions)
 #+LABEL: mod_confusion_matrix
 #+CAPTION: Matrice di confusione del modello di regressione logistica per il /test set/; sulle righe le previsioni e sulle colonne i valori reali.
 #+RESULTS:
-|               | heterogeneous | homogeneous |
-|---------------+---------------+-------------|
-| heterogeneous |             2 |           1 |
-| homogeneous   |             0 |           6 |
+|             | homogeneous |
+|-------------+-------------|
+| homogeneous |           4 |
 
 
 Come si può notare nella matrice di confusione (figura [[mod_confusion_matrix]]), il modello ha commesso un solo errore catalogando come eterogenea una lesione omogenea.
@@ -296,13 +374,11 @@ round(c("accuracy" = accuracy,
         "f_1" = f1), 2)
 #+END_SRC
 
+#+RESULTS:
+
 #+LABEL: mod_results
 #+CAPTION: Indici di accuratezza per il modello.
 #+RESULTS:
-| accuracy  | 0.89 |
-| precision | 0.67 |
-| recall    |    1 |
-| f_1       |  0.8 |
 
 
 * Conclusioni
