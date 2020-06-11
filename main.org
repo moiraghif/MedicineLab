@@ -1,5 +1,5 @@
-#+TITLE: *Big Data in Healt Care*
-#+AUTHOR: Federico Moiraghi - 799735
+#+TITLE: *Big Data in Health Care*
+#+AUTHOR: Federico Moiraghi - 799735, Pranav Kasela - 846965
 #+DATE: A.A. 2019/2020
 #+OPTIONS: toc:nil
 #+LANGUAGE: it
@@ -15,6 +15,7 @@ Il modello risultante dal presente Progetto sarà facilmente interpretabile da u
 #+end_abstract
 
 * Indice :ignore:
+
 #+TOC: headlines 1
 #+LATEX: \thispagestyle{empty}
 #+LATEX: \newpage
@@ -24,89 +25,93 @@ Il modello risultante dal presente Progetto sarà facilmente interpretabile da u
 Si è deciso di utilizzare per il presente Progetto il linguaggio di programmazione =R=, dato che il suo uso all'interno di ospedali e centri di ricerca è in forte crescita.
 Grazie alla libreria [[https://cran.r-project.org/web/packages/RNifti/readme/README.html][=RNifti=]] è possibile importare i file =.nii= (contenenti le lesioni oncologiche), facilitando sia l'analisi esplorativa sia la successiva costruzione del modello.
 
-#+BEGIN_SRC R :session :tangle yes :exports none :results none
-rm(list = ls())
-set.seed(201920)
+#+BEGIN_SRC python :session :tangle yes :exports none :results none
+import pandas as pd
+from radiomics import featureextractor
 
-library(RNifti)
-library(tidyverse)
+#nii image reader
+import SimpleITK as sitk
+import numpy as np
 
+import multiprocessing as mp
+import os
 
-basic_path <- "./code__esempi/lesions"
-classes <- c("heterogeneous", "homogeneous")
-paths <- paste(basic_path, classes, "nifti/", sep="/")
+#indicating the features required
+extract_this = {"shape":      ["Maximum3DDiameter",
+                               "MajorAxisLength", "Sphericity",
+                               "MinorAxisLength", "SurfaceArea",
+                               "SurfaceVolumeRatio",
+                               "Flatness", "VoxelVolume"],
+                "firstorder": ["Entropy", "Kurtosis","Maximum",
+                               "MeanAbsoluteDeviation",
+                               "Mean", "Median", "Minimum",
+                               "MeanAbsoluteDeviation",
+                               "Skewness", "Variance"],
+                "glcm":       ["Autocorrelation", "Contrast"],
+                "glrlm":      ["HighGrayLevelRunEmphasis"],
+                "ngtdm":      ["Contrast", "Coarseness"]}
 
-files_heterogeneous <- paste0(paths[1], list.files(paths[1]))
-files_homogeneous   <- paste0(paths[2], list.files(paths[2]))
-files_class <- rep.int(c(1, 0),
-                       times = purrr::map_int(list(files_heterogeneous,
-                                                   files_homogeneous),
-                                              length))
-files <- tibble::tibble(
-  filename = c(files_heterogeneous, files_homogeneous),
-  heterogeneous = files_class)
-files <- files[sample(1:nrow(files)), ]
+#initialize the featureextractor and define the required features
+extractor = featureextractor.RadiomicsFeatureExtractor()
+extractor.disableAllFeatures()
+extractor.enableFeaturesByName(**extract_this)
 
+features = ["diagnostics_Mask-original_VoxelNum"]
+features_name = ["VoxelNum"]
+for key in extract_this.keys():
+    for elem in extract_this.get(key):
+        features.append("original_"+key+"_"+elem)
+        if key == "ngtdm":
+            features_name.append(key+"_"+elem)
+        else:
+            features_name.append(elem)
 
-read_nii <- function(file_path) {
-  clean <- function(im) {
-    clean_x <- function(im) {
-      return(im[purrr::keep(1:dim(im)[1],
-                            ~!all(is.na(im[.x, , ]))), ,])
-    }
-    clean_y <- function(im) {
-      return(im[, purrr::keep(1:dim(im)[2],
-                              ~!all(is.na(im[, .x, ]))), ])
-    }
-    clean_z <- function(im) {
-      return(im[, , purrr::keep(1:dim(im)[3],
-                                ~!all(is.na(im[, , .x])))])
-    }
-    clean_image <- purrr::compose(clean_x, clean_y, clean_z)
-    out <- clean_image(im)
-    pixdim(out) <- pixdim(im)
-    return(out)
-  }
-  image <- RNifti::readNifti(file_path)
-  image[image == 0] <- NA
-  return(clean(image))
-}
+features_name.append("y")
 
-get_range <- function(files) {
-  lim <- Inf
-  Lim <- -Inf
-  for (file in files) {
-    image <- read_nii(file)
-    d <- range(image, na.rm = TRUE)
-    if (lim > d[1]) lim <- d[1]
-    if (Lim < d[2]) Lim <- d[2]
-  }
-  return(c(lim, Lim))
-}
+homImagePath = "./code__esempi/lesions/homogeneous/nifti/"
+homImages = [(homImagePath+file,1) for file in os.listdir(homImagePath)]
 
-read_standardize <- function(range) {
-  function(file_path) {
-    out <- read_nii(file_path)
-    return((out - range[1]) / range[2])
-  }
-}
+hetImagePath = "./code__esempi/lesions/heterogeneous/nifti/"
+hetImages = [(hetImagePath+file, 0) for file in os.listdir(hetImagePath)]
 
-read_file <- read_standardize(get_range(files$filename))
-#+END_SRC
+images = homImages + hetImages
 
-#+BEGIN_SRC R :session :exports none :results none
-image_test <- read_nii(files$filename[1])
+def get_feature_df(path):
+    img    = sitk.ReadImage(path[0])
+    mask   = img > 0
+    infos  = extractor.execute(img, mask)
+    result = [float(infos[f]) for f in features]
+    result.append(path[1])
+    return result
+
+#some parallelization (fede can increase the cpu count)
+pool = mp.Pool(4)
+res = pool.map(get_feature_df, images)
+
+#the final df
+final_df = pd.DataFrame(res, columns=features_name)
+
+final_df.to_csv("feature_dataset.csv", index=None)
 #+END_SRC
 
 Caricate le immagini (si ha un esempio con figura [[section_example]]), si nota che queste rappresentano la lesione già segmentata.
 Prima dell'analisi vera e propria è necessario ritagliare l'immagine, eliminando il valore dei /voxel/ esterni alla lesione: questi infatti hanno valore nullo, mentre, per aumentare l'efficienza del /workflow/, si preferisce eliminare tali valori rendendoli non definiti (=NA=).
 
-#+BEGIN_SRC R :session :exports results :results file graphics :file images/sample.png
-par(mfrow = c(3, 3))
-for (i in 1:9) {
-  image(image_test[, , i])
-}
-par(mfrow = c(1, 1))
+#+BEGIN_SRC python :session :exports results :results file graphics :file images/sample.png
+import matplotlib.pyplot as plt
+x_1 = sitk.ReadImage(hetImages[14][0])
+x = sitk.GetArrayFromImage(x_1)
+
+fig = plt.figure()
+count = 1
+for z in range(x.shape[2]):
+    if z>4 and z<14:
+        plt.subplot(3,3,count)
+        plt.imshow(x[:,:,z], cmap="gist_heat")
+        plt.axis("off")
+        count += 1
+
+fig.savefig("./images/sample.png")
 #+END_SRC
 
 #+LABEL: section_example
@@ -117,18 +122,23 @@ par(mfrow = c(1, 1))
 
 Mentre le dimensioni dei /voxel/ sono fisse per tutti i files (tabella [[tbl_voxel_dim]]), l'immagine è ritagliata sulla lesione in modo specifico, tralasciando le parti adiacenti: le dimensioni variano in base alla dimensione della lesione stessa.
 
-#+BEGIN_SRC R :session :exports results :results table :rownames yes
-voxel_dim <- round(pixdim(image_test), 2)
-names(voxel_dim) <- c("x", "y", "z")
-voxel_dim
+#+BEGIN_SRC python :session :exports results :results dataframe :rownames no :colnames yes
+dim_x = x_1.GetMetaData("pixdim[1]")
+dim_y = x_1.GetMetaData("pixdim[1]")
+dim_z = x_1.GetMetaData("pixdim[1]")
+
+res = pd.DataFrame({"x":[round(float(dim_x),3)],
+                    "y":[round(float(dim_y),3)],
+                    "z":[round(float(dim_z),3)]})
+
+res
 #+END_SRC
 
 #+LABEL: tbl_voxel_dim
 #+CAPTION: Dimensioni dei /voxel/ sugli assi $x$, $y$ e $z$.
 #+RESULTS:
-| x | 2.73 |
-| y | 2.73 |
-| z | 3.27 |
+:        x      y      z
+: 0  2.734  2.734  2.734
 
 Dunque sarà importante estrarre delle /features/ che non dipendano dalla dimensione dell'immagine ma tengano conto di possibili variazioni.
 Questo approccio comporta una serie di vantaggi, primo tra tutti la modularità del /workflow/: è possibile così prevedere la variabile risposta avendo a disposizione sia un'immagine già segmentata sia effettuando la segmentazione /on-the-fly/ tramite semplici algoritmi a soglia.
@@ -137,80 +147,64 @@ Questo approccio comporta una serie di vantaggi, primo tra tutti la modularità 
 L'estrazione delle /features/ mappa le immagini in uno spazio di dimensionalità molto minore, rendendo più semplice l'analisi dato il numero esiguo di dati a disposizione.
 Infatti, un qualsiasi algoritmo di /machine learning/ ha bisogno di un numero significativo di dati per  ``apprendere'' in modo /data-driven/ cosa utilizzare nell'analisi.
 
-#+BEGIN_SRC R :session :tangle yes :exports none :results none
-get_area <- function(image) {
-  xyz <- dim(image)
-  voxel_dim <- prod(pixdim(image))
-  out <- 0
-  for (x in 1:xyz[1])
-    for (y in 1:xyz[2])
-      for (z in 1:xyz[3])
-        if (!is.na(image[x, y, z])) {
-          lim_x <- c(max(x - 1, 0), min(x + 1, xyz[1]))
-          lim_y <- c(max(y - 1, 0), min(y + 1, xyz[2]))
-          lim_z <- c(max(z - 1, 0), min(z + 1, xyz[3]))
-          intorno <- image[seq(lim_x[1], lim_x[2]),
-                           seq(lim_y[1], lim_y[2]),
-                           seq(lim_z[1], lim_z[2])]
-          if (anyNA(intorno) || (x %in% lim_x || y %in% lim_y || z %in% lim_z))
-            out <- out + voxel_dim
-        }
-  return(out)
-}
-
-skewness <- function(image) {
-  image_clean <- image[!is.na(image)]
-  return(mean(((image_clean - mean(image_clean)) / sd(image_clean))^3))
-}
-
-kurtosis <- function(image) {
-  image_clean <- image[!is.na(image)]
-  return(mean(((image_clean - mean(image_clean)) / sd(image_clean))^4))
-}
-
-extract_features <- function(image_path) {
-  image <- read_file(image_path)
-  voxel_dim <- pixdim(image)
-  image.mean <- mean(image, na.rm = TRUE)
-  image.sd   <- sd(image, na.rm = TRUE)
-  image.sk   <- skewness(image)
-  image.kurt <- kurtosis(image)
-  image.volume <- prod(voxel_dim) * sum(! is.na(image))
-  image.sphere <- pi * 4/3 * (max(voxel_dim * dim(image)) / 2)^3
-  return(c(image.mean, image.sd, image.sk, image.kurt, image.volume, image.sphere, get_area(image[,,])))
-}
-#+END_SRC
-
 Per selezionare le /features/ da utilizzare, si è preso spunto da cite:imaging[fn::Gli autori usano i primi quattro momenti per stimare la differenza di eterogeneità di tumori alla cervicale nel tempo, a seguito di un trattamento.]: si usano i momenti dal primo fino al quarto (media, varianza, asimmetria e curtosi) dei valori dei /voxel/ che raffigurano la lesione oncologica.
 A questi però si è deciso di aggiungere anche il volume della lesione (=volume=) e della sfera equivalente (=sphere=), così come anche la superficie (=area=) della lesione (figura [[tbl_features]]).
 Purtroppo, non essendo stata specificata l'unità di misura dei /voxel/, non è possibile stabilirla nemmeno per le /features/ ricavate; tuttavia si presume che il proprietario dei dati sia in possesso di tale informazione e che quindi riesca ad attribuire maggiore semantica.
 
-#+BEGIN_SRC R :session :tangle yes :exports none :results none
-features <- tibble::as.tibble(t(purrr::map_dfc(files$filename, extract_features)))
-names(features) <- c("mean", "sd", "sk", "kurt", "volume", "sphere", "area")
-features$y <- files$heterogeneous
-#+END_SRC
+#+BEGIN_SRC R :session :tangle yes :exports results :results table :colnames yes
+library(dplyr)
 
-#+BEGIN_SRC R :session :exports results :results table :colnames yes
-round(head(features), 2)
+features <- read.csv("./feature_dataset.csv")
+features <- features %>% mutate_at(setdiff(colnames(features),
+                                           c("y")),
+                                   ~(scale(.) %>% as.vector))
+
+round(head(features), 3)
 #+END_SRC
 
 #+LABEL: tbl_features
 #+CAPTION: Esempio di /features/ estratte per le singole immagini.
 #+RESULTS:
-| mean |   sd |    sk | kurt |   volume |   sphere | area | y |
-|------+------+-------+------+----------+----------+------+---|
-| 0.48 | 0.19 | -0.19 | 1.75 |  8630.55 | 13346.56 |  267 | 0 |
-| 0.26 | 0.13 |  0.55 | 2.85 | 11711.15 | 31636.29 |  367 | 1 |
-| 0.08 | 0.03 |  0.03 | 2.03 | 10268.65 |    24368 |  301 | 0 |
-| 0.32 | 0.13 | -0.22 | 1.85 |  8410.51 | 13346.56 |  265 | 0 |
-| 0.12 | 0.06 |  1.03 | 4.15 |  8997.29 | 18497.65 |  307 | 1 |
-| 0.27 | 0.05 | -0.66 | 2.89 |   5818.9 |    24368 |  211 | 0 |
+| VoxelNum | Maximum3DDiameter | MajorAxisLength | Sphericity | MinorAxisLength | SurfaceArea | SurfaceVolumeRatio | Flatness | VoxelVolume | Entropy | Kurtosis | Maximum | MeanAbsoluteDeviation |   Mean | Median | Minimum | MeanAbsoluteDeviation.1 | Skewness | Variance | Autocorrelation | Contrast | HighGrayLevelRunEmphasis | ngtdm_Contrast | ngtdm_Coarseness | y |
+|----------+-------------------+-----------------+------------+-----------------+-------------+--------------------+----------+-------------+---------+----------+---------+-----------------------+--------+--------+---------+-------------------------+----------+----------+-----------------+----------+--------------------------+----------------+------------------+---|
+|    0.018 |            -0.695 |          -0.673 |      1.022 |          -0.266 |      -0.122 |             -0.658 |    1.037 |       0.018 |   0.035 |    0.451 |  -0.324 |                -0.732 |  0.138 |  0.216 |   1.783 |                  -0.732 |   -1.501 |   -0.688 |          -0.518 |   -0.721 |                   -0.512 |         -0.537 |            0.192 | 1 |
+|   -0.661 |             0.436 |           0.812 |     -0.185 |          -1.274 |      -0.707 |              0.569 |   -1.317 |      -0.661 |   -0.82 |   -0.476 |  -1.065 |                -0.879 | -1.037 | -1.029 |  -1.052 |                  -0.879 |    0.478 |   -0.748 |          -0.712 |   -0.787 |                   -0.711 |         -0.531 |            1.026 | 1 |
+|   -0.326 |            -0.719 |          -0.751 |      0.736 |          -0.525 |      -0.443 |             -0.254 |    0.527 |      -0.326 |   0.008 |   -0.616 |   0.707 |                 1.089 |  0.776 |  0.812 |   0.021 |                   1.089 |   -0.557 |    0.828 |           0.668 |    0.906 |                    0.641 |          0.782 |           -0.975 | 1 |
+|    0.485 |             0.356 |           0.028 |      0.787 |            0.23 |       0.414 |             -0.901 |    0.767 |       0.485 |   0.907 |   -0.625 |   0.747 |                 1.021 |  0.659 |  0.731 |  -0.664 |                   1.021 |   -0.499 |    0.697 |           0.707 |    0.592 |                    0.686 |         -0.106 |           -0.995 | 1 |
+|   -0.797 |            -0.986 |          -0.977 |      0.107 |          -0.913 |      -0.948 |                0.7 |   -0.128 |      -0.797 |  -1.033 |     0.76 |  -0.384 |                -0.594 | -0.188 | -0.171 |   0.051 |                  -0.594 |   -1.122 |   -0.605 |           -0.44 |   -0.671 |                    -0.44 |         -0.378 |            0.441 | 1 |
+|    0.493 |            -0.236 |          -0.338 |      1.258 |           0.063 |       0.305 |             -1.037 |    1.274 |       0.493 |   0.509 |   -0.621 |  -0.592 |                -0.557 | -0.351 |  -0.25 |   0.139 |                  -0.557 |   -0.871 |    -0.63 |          -0.547 |   -0.688 |                   -0.546 |         -0.543 |           -0.063 | 1 |
 
 
-La matrice dei dati risultante è quindi di dimensioni $44 \times 7$ (si esclude la variabile risposta), indipendentemente dalla dimensione delle immagini di partenza o dalla loro risoluzione.
+La matrice dei dati risultante è quindi di dimensioni $44 \times 24$ (si esclude la variabile risposta), indipendentemente dalla dimensione delle immagini di partenza o dalla loro risoluzione.
 
 Prima di procedere con la costruzione del modello, si preferisce effettuare una rapida analisi esplorativa sulla nuova matrice per verificare quali varibili includere.
+
+Il primo metodo della feature selection e' usando il test di Mann-Whitney, equivalente non parametrico del t-test.
+#+BEGIN_SRC R :session :tangle yes :exports results :results table :colnames yes
+score <- c()
+for (i in seq(1,dim(features)[2]-1)){
+  formula <- paste0(colnames(features)[i]," ~ y")
+  t_score <- wilcox.test(formula=as.formula(formula),
+                    data=features)$p.value
+  score <- c(score, round(t_score,3))
+}
+score_df <- data.frame(t(score))
+colnames(score_df) <- colnames(features)[1:dim(features)[2]-1]
+accepted <- colnames(score_df[,score_df < 0.05])
+
+features <- features[,c(accepted, "y")]
+
+score_df[,accepted]
+#+END_SRC
+
+#+CAPTION: p-values delle varibili accetate dal test di Mann-Whitney.
+#+RESULTS:
+| Maximum3DDiameter | MajorAxisLength | Sphericity | MinorAxisLength | SurfaceArea | Kurtosis | Maximum | Skewness | Variance | Contrast | ngtdm_Coarseness |
+|-------------------+-----------------+------------+-----------------+-------------+----------+---------+----------+----------+----------+------------------|
+|             0.011 |           0.012 |      0.003 |           0.003 |       0.016 |    0.002 |   0.008 |     0.04 |    0.025 |     0.02 |            0.034 |
+
+Una volta scelto le variabili importanti vediamo la loro correlazione, per escluderle, questo e' necessario per evitare problemi di multicollinearita'.
+
 #+BEGIN_SRC R :session :exports results :results file graphics :file images/corrplot.png
 library(ggcorrplot)
 ggcorrplot::ggcorrplot(
@@ -225,62 +219,70 @@ ggcorrplot::ggcorrplot(
 #+RESULTS:
 [[file:images/corrplot.png]]
 
-Non è necessario effettuare alcun test per confermare la correlazione (figura [[features_corr]]) tra area, volume della lesione e volume della sfera equivalente.
-Pertanto, in fase di scelta delle /features/ del modello, si dovrà decidere qual è la più utile ai fini predittivi e inferenziali.
+Dalla figura [[features_corr]], deduciamo subito che il Maximum e Variance sono correlati a piu' di una variabile, quindi e' meglio escluderli.
 
+#+BEGIN_SRC R :session :tangle yes :exports none :results none
+new_cols <- setdiff(colnames(features),
+                    c("Maximum","Variance",
+                      "Maximum3DDiameter",
+                      "MinorAxisLength",
+                      "Contrast", "Sphericity"))
+
+features <- features[,new_cols]
+#+END_SRC
 * Costruzione del modello
 Essendo la variabile risposta binaria (tumore /omogeneo/ o /eterogeneo/, rispettivamente 0 o 1), e volendo costruire un modello facilmente interpretabile per un esperto di dominio, si effettua una semplice regressione logistica.
-
 #+BEGIN_SRC R :session :tangle yes :exports none :results none
 library(MASS)
 
 
-accuracy <- function(mod, data) {
-  y_hat <- ifelse(predict(mod, data) > 0.5, 1, 0)
-  return(mean(y_hat == data$y))
+accuracy <- function(y_true, y_hat) {
+  return(mean(y_true == y_hat))
 }
 
-precision <- function(mod, data) {
-  y_hat <- ifelse(predict(mod, data) > 0.5, 1, 0)
-  tp <- mean(y_hat == 1 & data$y == 1)
-  fp <- mean(y_hat == 1 & data$y == 0)
+precision <- function(y_true, y_hat) {
+  tp <- mean(y_hat == 1 & y_true == 1)
+  fp <- mean(y_hat == 1 & y_true == 0)
   return(tp / (tp + fp))
 }
 
-recall <- function(mod, data) {
-  y_hat <- ifelse(predict(mod, data) > 0.5, 1, 0)
-  tp <- mean(y_hat == 1 & data$y == 1)
-  fn <- mean(y_hat == 0 & data$y == 1)
+recall <- function(y_true, y_hat) {
+  tp <- mean(y_hat == 1 & y_true == 1)
+  fn <- mean(y_hat == 0 & y_true == 1)
   if (fn == 0) return(1)
   return(tp / (tp + fn))
 }
 
-f1 <- function(mod, data) {
-  p <- precision(mod, data)
-  r <- recall(mod, data)
+f1 <- function(y_true, y_hat) {
+  p <- precision(y_true, y_hat)
+  r <- recall(y_true, y_hat)
   return(2 * p * r / (p + r))
 }
 
 
-k <- 5
-dim_fold <- 4
+k <- 30
+dim_fold <- 9
 out <- list(accuracy = c(),
             precision = c(),
             recall = c(),
             f_1 = c())
-for (i in seq(1, 11)) {
-  j <- (i - 1) * 4 + 1
-  test_index <- seq(j, j + dim_fold - 1)
+features$y <- as.factor(features$y)
+for (i in seq(1, k)) {
+  set.seed(i)
+  test_index <- sample(seq(1,dim(features)[1]), dim_fold)
   train_set <- features[-test_index, ]
   test_set  <- features[ test_index, ]
 
-  mod <- glm(y ~ 1 + mean + sd + sk + kurt + I(volume/sphere),
+  mod <- glm(y ~ SurfaceArea + Kurtosis + Skewness,
              data = train_set,
              family = binomial("logit"))
-  out$accuracy <- c(out$accuracy, accuracy(mod, test_set))
-  out$precision <- c(out$precision, precision(mod, test_set))
-  out$recall <- c(out$recall, recall(mod, test_set))
-  out$f_1 <- c(out$f_1, f1(mod, test_set))
+
+  y_hat <- ifelse(predict(mod, test_set)>0.5, 1, 0)
+  y_true <- test_set$y
+  out$accuracy <- c(out$accuracy, accuracy(y_true, y_hat))
+  out$precision <- c(out$precision, precision(y_true, y_hat))
+  out$recall <- c(out$recall, recall(y_true, y_hat))
+  out$f_1 <- c(out$f_1, f1(y_true, y_hat))
 }
 #+END_SRC
 #+BEGIN_SRC R :session :exports results :results table :rownames yes :colnames yes
@@ -305,10 +307,10 @@ round(out_df[, c("average", "IDC_99")], 3)
 #+RESULTS:
 |           | average | IDC_99 |
 |-----------+---------+--------|
-| accuracy  |    0.75 |  0.161 |
-| precision |   0.833 |  0.341 |
-| recall    |   0.561 |  0.293 |
-| f_1       |   0.725 |  0.128 |
+| accuracy  |   0.863 |  0.045 |
+| precision |    0.92 |  0.052 |
+| recall    |   0.853 |   0.07 |
+| f_1       |   0.873 |  0.046 |
 
 La selezione delle /features/ è effettuata tramite procedimento /stepwise/ (partendo dal modello pieno ed eliminando le variabili superflue, ma con la possibilità, a ogni iterazione, di reinserirle).
 Si è deciso di rimuovere alcune variabili a prescindere:
@@ -328,14 +330,18 @@ round(df, 6)
 #+LABEL: tbl_model_coeff
 #+CAPTION: Stima dei coefficienti del modello e loro significatività.
 #+RESULTS:
-|                  |      Stima |  p-value |
-|------------------+------------+----------|
-| (Intercept)      |   -7.03308 | 0.038373 |
-| mean             |  13.513302 | 0.146777 |
-| sd               | -20.568641 | 0.365802 |
-| sk               |   3.278198 | 0.051348 |
-| kurt             |   1.887082 | 0.129189 |
-| I(volume/sphere) |   1.653833 | 0.506789 |
+|                   |      Stima |  p-value |
+|-------------------+------------+----------|
+| (Intercept)       |  -23.02822 | 0.999629 |
+| Maximum3DDiameter |  59.690072 |  0.99963 |
+| MajorAxisLength   | -49.874006 | 0.999685 |
+| Sphericity        | -21.116633 | 0.999838 |
+| MinorAxisLength   | -62.728735 | 0.999613 |
+| SurfaceArea       | -62.645378 | 0.999723 |
+| Kurtosis          | -77.175109 | 0.999154 |
+| Skewness          | -62.668665 | 0.999299 |
+| Contrast          |  11.717566 | 0.999757 |
+| ngtdm_Coarseness  |  31.235255 | 0.999643 |
 
 
 Si noti come i coefficienti maggiormente significativi siano l'asimmetria =sk= e il volume =volume=: la probabilità che il tumore sia eterogeneo è tanto maggiore quanto più grande è la lesione e quanto più pesante è la coda positiva della distribuzione.

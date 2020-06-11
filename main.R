@@ -1,114 +1,85 @@
-rm(list = ls())
-set.seed(201920)
+library(dplyr)
 
-library(RNifti)
-library(tidyverse)
+features <- read.csv("./feature_dataset.csv")
+features <- features %>% mutate_at(setdiff(colnames(features),
+                                           c("y")),
+                                   ~(scale(.) %>% as.vector))
 
+round(head(features), 3)
 
-basic_path <- "./code__esempi/lesions"
-classes <- c("heterogeneous", "homogeneous")
-paths <- paste(basic_path, classes, "nifti/", sep="/")
-
-files_heterogeneous <- paste0(paths[1], list.files(paths[1]))
-files_homogeneous   <- paste0(paths[2], list.files(paths[2]))
-files_class <- rep.int(c(1, 0),
-                       times = purrr::map_int(list(files_heterogeneous,
-                                                   files_homogeneous),
-                                              length))
-files <- tibble::tibble(
-  filename = c(files_heterogeneous, files_homogeneous),
-  heterogeneous = files_class)
-files <- files[sample(1:nrow(files)), ]
-
-
-read_nii <- function(file_path) {
-  clean <- function(im) {
-    clean_x <- function(im) {
-      return(im[purrr::keep(1:dim(im)[1],
-                            ~!all(is.na(im[.x, , ]))), ,])
-    }
-    clean_y <- function(im) {
-      return(im[, purrr::keep(1:dim(im)[2],
-                              ~!all(is.na(im[, .x, ]))), ])
-    }
-    clean_z <- function(im) {
-      return(im[, , purrr::keep(1:dim(im)[3],
-                                ~!all(is.na(im[, , .x])))])
-    }
-    clean_image <- purrr::compose(clean_x, clean_y, clean_z)
-    out <- clean_image(im)
-    pixdim(out) <- pixdim(im)
-    return(out)
-  }
-  image <- RNifti::readNifti(file_path)
-  image[image == 0] <- NA
-  return(clean(image))
+score <- c()
+for (i in seq(1,dim(features)[2]-1)){
+  formula <- paste0(colnames(features)[i]," ~ y")
+  t_score <- wilcox.test(formula=as.formula(formula),
+                    data=features)$p.value
+  score <- c(score, round(t_score,3))
 }
+score_df <- data.frame(t(score))
+colnames(score_df) <- colnames(features)[1:dim(features)[2]-1]
+accepted <- colnames(score_df[,score_df < 0.05])
 
-get_area <- function(image) {
-  xyz <- dim(image)
-  voxel_dim <- prod(pixdim(image))
-  out <- 0
-  for (x in 1:xyz[1])
-    for (y in 1:xyz[2])
-      for (z in 1:xyz[3])
-        if (!is.na(image[x, y, z])) {
-          lim_x <- c(max(x - 1, 0), min(x + 1, xyz[1]))
-          lim_y <- c(max(y - 1, 0), min(y + 1, xyz[2]))
-          lim_z <- c(max(z - 1, 0), min(z + 1, xyz[3]))
-          intorno <- image[seq(lim_x[1], lim_x[2]),
-                           seq(lim_y[1], lim_y[2]),
-                           seq(lim_z[1], lim_z[2])]
-          if (anyNA(intorno) || (x %in% lim_x || y %in% lim_y || z %in% lim_z))
-            out <- out + voxel_dim
-        }
-  return(out)
-}
+features <- features[,c(accepted, "y")]
 
-skewness <- function(image) {
-  image_clean <- image[!is.na(image)]
-  return(mean(((image_clean - mean(image_clean)) / sd(image_clean))^3))
-}
+score_df[,accepted]
 
-kurtosis <- function(image) {
-  image_clean <- image[!is.na(image)]
-  return(mean(((image_clean - mean(image_clean)) / sd(image_clean))^4))
-}
+new_cols <- setdiff(colnames(features),
+                    c("Maximum","Variance",
+                      "Maximum3DDiameter",
+                      "MinorAxisLength",
+                      "Contrast", "Sphericity"))
 
-extract_features <- function(image_path) {
-  image <- read_nii(image_path)
-  voxel_dim <- pixdim(image)
-  image.mean <- mean(image, na.rm = TRUE)
-  image.sd   <- sd(image, na.rm = TRUE)
-  image.sk   <- skewness(image)
-  image.kurt <- kurtosis(image)
-  image.volume <- prod(voxel_dim) * sum(! is.na(image))
-  image.sphere <- pi * 4/3 * (max(voxel_dim * dim(image)) / 2)^3
-  return(c(image.mean, image.sd, image.sk, image.kurt, image.volume, image.sphere, get_area(image[,,])))
-}
-
-features <- tibble::as.tibble(t(purrr::map_dfc(files$filename, extract_features)))
-names(features) <- c("mean", "sd", "sk", "kurt", "volume", "sphere", "area")
-features$y <- files$heterogeneous
+features <- features[,new_cols]
 
 library(MASS)
 
-train_index <-  1:35
-test_index  <- 36:nrow(features)
 
-train_set <- features[train_index, ]
-test_set  <- features[test_index,  ]
+accuracy <- function(y_true, y_hat) {
+  return(mean(y_true == y_hat))
+}
 
+precision <- function(y_true, y_hat) {
+  tp <- mean(y_hat == 1 & y_true == 1)
+  fp <- mean(y_hat == 1 & y_true == 0)
+  return(tp / (tp + fp))
+}
 
-predict_model <- function(mod, data) {
-  y_hat <- ifelse(predict(mod, data) > 0.5, 1, 0)
-  return(mean(y_hat == data$y))
+recall <- function(y_true, y_hat) {
+  tp <- mean(y_hat == 1 & y_true == 1)
+  fn <- mean(y_hat == 0 & y_true == 1)
+  if (fn == 0) return(1)
+  return(tp / (tp + fn))
+}
+
+f1 <- function(y_true, y_hat) {
+  p <- precision(y_true, y_hat)
+  r <- recall(y_true, y_hat)
+  return(2 * p * r / (p + r))
 }
 
 
-mod_full <- glm(y ~ 1 + mean + sk + kurt + volume,
-           data = train_set,
-           family = binomial("logit"))
-mod <- stepAIC(mod_full, direction = "both")
+k <- 30
+dim_fold <- 9
+out <- list(accuracy = c(),
+            precision = c(),
+            recall = c(),
+            f_1 = c())
+features$y <- as.factor(features$y)
+for (i in seq(1, k)) {
+  set.seed(i)
+  test_index <- sample(seq(1,dim(features)[1]), dim_fold)
+  train_set <- features[-test_index, ]
+  test_set  <- features[ test_index, ]
+
+  mod <- glm(y ~ SurfaceArea + Kurtosis + Skewness,
+             data = train_set,
+             family = binomial("logit"))
+
+  y_hat <- ifelse(predict(mod, test_set)>0.5, 1, 0)
+  y_true <- test_set$y
+  out$accuracy <- c(out$accuracy, accuracy(y_true, y_hat))
+  out$precision <- c(out$precision, precision(y_true, y_hat))
+  out$recall <- c(out$recall, recall(y_true, y_hat))
+  out$f_1 <- c(out$f_1, f1(y_true, y_hat))
+}
 
 summary(mod)
