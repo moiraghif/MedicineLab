@@ -1,37 +1,46 @@
-library(dplyr)
+rm(list = ls())
+set.seed(20200623)
 
-features <- read.csv("./feature_dataset.csv")
-features <- features %>% mutate_at(setdiff(colnames(features),
-                                           c("y")),
-                                   ~(scale(.) %>% as.vector))
+library(tidyverse)
 
-round(head(features), 3)
+features <- readr::read_csv("./feature_dataset.csv")
+features <- features %>%
+  mutate_at(setdiff(colnames(features),
+                    c("y")),
+            ~(scale(.) %>% as.vector))
+features <- features[sample(nrow(features)), ]
 
 score <- c()
-for (i in seq(1,dim(features)[2]-1)){
-  formula <- paste0(colnames(features)[i]," ~ y")
+for (i in seq(1, dim(features)[2] - 1)) {
+  formula <- paste0(colnames(features)[i], " ~ y")
   t_score <- wilcox.test(formula=as.formula(formula),
-                    data=features)$p.value
-  score <- c(score, round(t_score,3))
+                         data=features)$p.value
+  score <- c(score, round(t_score, 3))
 }
 score_df <- data.frame(t(score))
-colnames(score_df) <- colnames(features)[1:dim(features)[2]-1]
+colnames(score_df) <- colnames(features)[1:(dim(features)[2] - 1)]
 accepted <- colnames(score_df[,score_df < 0.05])
 
-features <- features[,c(accepted, "y")]
-
-score_df[,accepted]
+features <- features[, c(accepted, "y")]
 
 new_cols <- setdiff(colnames(features),
-                    c("Maximum","Variance",
+                    c("Maximum", "Variance",
                       "Maximum3DDiameter",
                       "MinorAxisLength",
                       "Contrast", "Sphericity"))
 
-features <- features[,new_cols]
+features <- features[, new_cols]
 
 library(MASS)
 
+
+formula <- stepAIC(glm(y ~  MajorAxisLength + SurfaceArea + Kurtosis +
+                            Skewness + ngtdm_Coarseness,
+                       data = features,
+                       family = binomial("logit")),
+                   direction = "both",
+                   k = log(nrow(features)))$formula
+mod_full <- glm(formula, data = features, family = binomial("logit"))
 
 accuracy <- function(y_true, y_hat) {
   return(mean(y_true == y_hat))
@@ -56,25 +65,25 @@ f1 <- function(y_true, y_hat) {
   return(2 * p * r / (p + r))
 }
 
-
+features$y <- as.factor(features$y)
 k <- 30
 dim_fold <- 9
 out <- list(accuracy = c(),
             precision = c(),
             recall = c(),
             f_1 = c())
-features$y <- as.factor(features$y)
+
 for (i in seq(1, k)) {
   set.seed(i)
   test_index <- sample(seq(1,dim(features)[1]), dim_fold)
   train_set <- features[-test_index, ]
   test_set  <- features[ test_index, ]
 
-  mod <- glm(y ~ SurfaceArea + Kurtosis + Skewness,
+  mod <- glm(formula,
              data = train_set,
              family = binomial("logit"))
 
-  y_hat <- ifelse(predict(mod, test_set)>0.5, 1, 0)
+  y_hat <- ifelse(predict(mod, test_set) > 0.5, 1, 0)
   y_true <- test_set$y
   out$accuracy <- c(out$accuracy, accuracy(y_true, y_hat))
   out$precision <- c(out$precision, precision(y_true, y_hat))
@@ -82,4 +91,57 @@ for (i in seq(1, k)) {
   out$f_1 <- c(out$f_1, f1(y_true, y_hat))
 }
 
-summary(mod)
+features <- readr::read_csv("./feature_dataset.csv")
+features <- features %>%
+  mutate_at(setdiff(colnames(features),
+                    c("y")),
+            ~(scale(.) %>% as.vector))
+features$y <- as.factor(features$y)
+
+unsupervised_features <- features[, 1:(dim(features)[2] - 1)]
+data.pca <- prcomp(unsupervised_features)
+
+round(summary(data.pca)$importance[, 1:6], 3)
+
+data <- data.pca$x[,1:6]
+
+library(dbscan)
+cluster <- dbscan::dbscan(data, 3.5)
+
+library(factoextra)
+
+ncluster_score <- c()
+for (num_clus in seq(1,15)){
+  cluster <- factoextra::hkmeans(data, num_clus)
+  correct <- 0
+  # Calculate accuracy based on the mode of the cluster.
+  for (i in seq(1,num_clus)){
+    index <- which(cluster$cluster == i)
+    in_clus <- features$y[index]
+    homs <- as.numeric(table(in_clus)["0"])
+    hets <- as.numeric(table(in_clus)["1"])
+    if (homs > hets){
+      correct <- correct + homs
+    } else {
+      correct <- correct + hets
+    }
+  }
+  ncluster_score <- c(ncluster_score,
+                      correct / dim(unsupervised_features)[1])
+}
+
+cluster <- factoextra::hkmeans(data, 7)
+correct <- 0
+for (i in seq(1,num_clus)){
+  index <- which(cluster$cluster == i)
+  in_clus <- features$y[index]
+  homs <- as.numeric(table(in_clus)["0"])
+  hets <- as.numeric(table(in_clus)["1"])
+  if (homs > hets){
+    correct <- correct + homs
+  } else {
+    correct <- correct + hets
+  }
+}
+
+summary(mod_full)
