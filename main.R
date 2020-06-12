@@ -13,13 +13,13 @@ features <- features[sample(nrow(features)), ]
 score <- c()
 for (i in seq(1, dim(features)[2] - 1)) {
   formula <- paste0(colnames(features)[i], " ~ y")
-  t_score <- wilcox.test(formula=as.formula(formula),
-                         data=features)$p.value
+  t_score <- wilcox.test(formula = as.formula(formula),
+                         data = features)$p.value
   score <- c(score, round(t_score, 3))
 }
 score_df <- data.frame(t(score))
 colnames(score_df) <- colnames(features)[1:(dim(features)[2] - 1)]
-accepted <- colnames(score_df[,score_df < 0.05])
+accepted <- colnames(score_df[, score_df < 0.05])
 
 features <- features[, c(accepted, "y")]
 
@@ -75,7 +75,7 @@ out <- list(accuracy = c(),
 
 for (i in seq(1, k)) {
   set.seed(i)
-  test_index <- sample(seq(1,dim(features)[1]), dim_fold)
+  test_index <- sample(seq(1, dim(features)[1]), dim_fold)
   train_set <- features[-test_index, ]
   test_set  <- features[ test_index, ]
 
@@ -85,10 +85,10 @@ for (i in seq(1, k)) {
 
   y_hat <- ifelse(predict(mod, test_set) > 0.5, 1, 0)
   y_true <- test_set$y
-  out$accuracy <- c(out$accuracy, accuracy(y_true, y_hat))
+  out$accuracy  <- c(out$accuracy,  accuracy(y_true, y_hat))
   out$precision <- c(out$precision, precision(y_true, y_hat))
-  out$recall <- c(out$recall, recall(y_true, y_hat))
-  out$f_1 <- c(out$f_1, f1(y_true, y_hat))
+  out$recall    <- c(out$recall,    recall(y_true, y_hat))
+  out$f_1       <- c(out$f_1,       f1(y_true, y_hat))
 }
 
 features <- readr::read_csv("./feature_dataset.csv")
@@ -101,10 +101,16 @@ features$y <- as.factor(features$y)
 unsupervised_features <- features[, 1:(dim(features)[2] - 1)]
 data.pca <- prcomp(unsupervised_features)
 
-round(summary(data.pca)$importance[, 1:6], 3)
-
 data <- data.pca$x[,1:6]
 
 cluster <- dbscan::dbscan(data, 3.5)
+
+ncluster_score <- c()
+for (num_clus in seq(2, 15)){
+  cluster <- factoextra::hkmeans(data, num_clus)
+  # Calculate silhuoette based on the mode of the cluster.
+  ncluster_score <- c(ncluster_score,
+                      cluster$betweenss)
+}
 
 summary(mod_full)
