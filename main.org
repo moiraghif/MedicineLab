@@ -585,7 +585,7 @@ round(data.frame(c(accuracy, precision, recall, f1),
 | accuracy  | 0.727 |
 | precision |     1 |
 | recall    | 0.684 |
-| f1-score  | 0.813 |
+| f_1       | 0.813 |
 
 #+BEGIN_SRC R :session :exports results :results table :rownames yes :colnames yes
 HomOrHet <- ifelse(features$y == 0, "homogeneous", "heterogeneous")
