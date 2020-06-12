@@ -594,7 +594,7 @@ table(clus, HomOrHet)
 #+END_SRC
 
 #+LABEL: hkmeans_clusters
-#+CAPTION: Il modello ha identificato 3 /cluster/ definiti (C_3, C_4 e C_5), considerando la variabile risposta; mentre la maggior parte delle osservazioni è compresa tra i primi due /cluster/ (C_1 e C_2).
+#+CAPTION: Il modello ha identificato due /cluster/ definiti (C_3 e C_4), considerando la variabile risposta; mentre la maggior parte delle osservazioni è compresa nei primi due /cluster/ (C_1 e C_2).
 #+RESULTS:
 |     | heterogeneous | homogeneous |
 |-----+---------------+-------------|
