@@ -394,7 +394,7 @@ conf_matrix <- table(previsions)
 
 
 
-* Modello /semi-supervised/
+* Modello /semi-supervised/ o /unsupervised/
 
 #+BEGIN_SRC R :session :tangle yes :exports none :results none
 features <- readr::read_csv("./feature_dataset.csv")
@@ -405,18 +405,27 @@ features <- features %>%
 features$y <- as.factor(features$y)
 #+END_SRC
 
+Riprendiamo il dataset di partenza senza alcun feature selection, e effettiamo solo una standardizzazione. Per effettuare il clustering si devono diminuire le dimensioni, non volendo usare le y (se non per il calcolo dell'accuratezza) non possiamo usare i soliti modelli di feture selection, un modo potrebbe essere effettuare una feature selection basata sulla varianza, e per fare cio' si effetua la PCA, accettando solo le PCA che spiegano circa il $95\%$ della varianza delle variabili di partenza. Nella figura [[fig:pca_plot]] si vede che 6 componenti del PCA spiegano il $95\%$ della varianza, in questo modo si elimina anche molto rumore che e' causato dalla presenza di tante variabili (spesso inutili).
+
 #+BEGIN_SRC R :session :exports results :results graphics file :file images/pca_unsupervised.png
 eigen_values <- eigen(var(features))$values
 perc_variance <- cumsum(eigen_values) / sum(eigen_values)
-plot(perc_variance, type = "l", lwd = 1.5,
-     xlab = "Number of PC", ylab = "% variance")
-points(perc_variance, pch = 20, cex = 1.5)
-abline(h = 0.95, col = "red")
-abline(h = 1, col = "black", lwd = 0.4)
+data.frame(number_of_components = seq(1, dim(features)[2]),
+           variance=perc_variance) %>%
+  ggplot(aes(x=number_of_components, y=variance)) +
+  geom_line() + geom_point() +
+  geom_hline(aes(yintercept = 1), alpha=0.3) +
+  geom_hline(aes(yintercept = 0.95), color="red",
+             alpha=0.4) +
+  xlab("Number of PC") + ylab("% variance") +
+  ggtitle("Selection of number of components of PCA")
 #+END_SRC
 
+#+LABEL: fig:pca_plot
+#+CAPTION: Plot della varianza cumulativa con le dimensioni di PCA.
 #+RESULTS:
 [[file:images/pca_unsupervised.png]]
+
 
 #+BEGIN_SRC R :session :tangle yes :exports none :results table :colnames yes :rownames yes
 unsupervised_features <- features[, 1:(dim(features)[2] - 1)]
@@ -428,14 +437,28 @@ round(summary(data.pca)$importance[, 1:6], 3)
 #+RESULTS:
 |                        |   PC1 |   PC2 |   PC3 |   PC4 |   PC5 |   PC6 |
 |------------------------+-------+-------+-------+-------+-------+-------|
-| Standard deviation     | 3.454 | 2.188 | 1.824 | 1.122 | 0.941 | 0.728 |
-| Proportion of Variance | 0.497 | 0.199 | 0.139 | 0.052 | 0.037 | 0.022 |
-| Cumulative Proportion  | 0.497 | 0.696 | 0.835 | 0.887 | 0.924 | 0.946 |
+| Standard deviation     | 2.995 |  2.02 | 1.814 | 1.095 | 0.901 | 0.684 |
+| Proportion of Variance | 0.448 | 0.204 | 0.165 |  0.06 | 0.041 | 0.023 |
+| Cumulative Proportion  | 0.448 | 0.652 | 0.817 | 0.877 | 0.917 | 0.941 |
+
+
+Si effettua un primo tipo di clustering basato sulla densita' (nello spazio dei PCA) usando uno dei modelli piu' usati per il clustering, il DBScan. Nella Figura [[fig:DBScan_eps]] notiamo che eps piu' vantaggioso usando la distanza di 5-NN risulta vicino al 3.5, quindi viene scelto esso come il valore ideale, per il clustering.
+
+#+BEGIN_SRC R :session :exports results :results graphics file :file images/dbscan_eps_selection.png
+data <- data.pca$x[,1:6]
+
+dbscan::kNNdistplot(data, k=5)
+abline(h = 3.5, lty = 2, col="red")
+#+END_SRC
+
+#+LABEL: fig:DBScan_eps
+#+CAPTION: Scelta del eps per il DBScan
+#+RESULTS:
+[[file:images/dbscan_eps_selection.png]]
 
 #+BEGIN_SRC R :session :tangle yes :exports none :results none
 data <- data.pca$x[,1:6]
 
-library(dbscan)
 cluster <- dbscan::dbscan(data, 3.5)
 #+END_SRC
 
@@ -446,46 +469,110 @@ out <- data.frame("accuracy"  = accuracy(cluster$cluster, features$y),
                   "f_1"       = f1(cluster$cluster, features$y))
 round(t(out), 2)
 #+END_SRC
-
+#+CAPTION: Results on the DBScan cluster.
 #+RESULTS:
+| accuracy  | 0.75 |
+| precision | 0.96 |
+| recall    | 0.71 |
+| f_1       | 0.82 |
 
-#+BEGIN_SRC R :session :tangle yes :results none :exports none
-library(factoextra)
+#+BEGIN_SRC R :session :exports results :results table :rownames yes :colnames yes
+HomOrHet <- ifelse(features$y==0, "HOM", "HET")
+clus <- paste0("CLUSTER_", cluster$cluster)
+table(clus, HomOrHet)
+#+END_SRC
+#+CAPTION: Distribution of the images in the cluster.
+#+RESULTS:
+|           | HET | HOM |
+|-----------+-----+-----|
+| CLUSTER_0 |   1 |   8 |
+| CLUSTER_1 |  25 |  10 |
 
+
+Pur avendo un'accuratezza non bassa, si vede che il secondo cluster contiene un numero di immagini omogenee non trascurabili, inoltre il DBScan e' riuscito a trovare solo un cluster, il /CLUSTER_0/ e' un cluster costituito da prova considerate non appartenenti a nessun cluster.
+Quindi si tenta un altro approccio basato su un ibrido tra il clustering gerarchico e il k-means.
+
+
+#+BEGIN_SRC R :session :results none :exports none
 ncluster_score <- c()
-for (num_clus in seq(1,15)){
+for (num_clus in seq(2,15)){
   cluster <- factoextra::hkmeans(data, num_clus)
-  correct <- 0
-  # Calculate accuracy based on the mode of the cluster.
-  for (i in seq(1,num_clus)){
-    index <- which(cluster$cluster == i)
-    in_clus <- features$y[index]
-    homs <- as.numeric(table(in_clus)["0"])
-    hets <- as.numeric(table(in_clus)["1"])
-    if (homs > hets){
-      correct <- correct + homs
-    } else {
-      correct <- correct + hets
-    }
-  }
+  # Calculate silhuoette based on the mode of the cluster.
   ncluster_score <- c(ncluster_score,
-                      correct / dim(unsupervised_features)[1])
+                      cluster$betweenss)
 }
+#+END_SRC
 
-cluster <- factoextra::hkmeans(data, 7)
-correct <- 0
-for (i in seq(1,num_clus)){
+In questo caso pero' bisogna cercare il numero di cluster ideale, e per fare questo effettiamo il cluster per ciascun k da 2 da 15 e plottiamo le loro misure betweenss e scegliamo un k in base al plot.
+Nella Figura [[fig:kmean_k]] scegliamo il k=4 per non ``overfittare'' il cluster.
+
+#+BEGIN_SRC R :session :exports results :results graphics file :file images/cluster_selection.png
+data.frame(number_of_cluster = seq(2, 15),
+           sil=ncluster_score) %>%
+  ggplot(aes(x=number_of_cluster, y=ncluster_score)) +
+  geom_line() + geom_point() +
+  geom_vline(aes(xintercept = 4), color="red",
+             alpha=0.4) +
+  xlab("Number of Clusters") + ylab("BetweenSS") +
+  ggtitle("Selection of number of cluster")
+#+END_SRC
+#+LABEL: fig:kmean_k
+#+CAPTION: Plot of the BetweenSS for each k to chose the optimal one.
+#+RESULTS:
+[[file:images/cluster_selection.png]]
+
+Nella tabella seguente si mostrano le misure ottentute dal cluster.
+
+#+BEGIN_SRC R :session :exports results :results table :rownames yes
+cluster <- factoextra::hkmeans(data, 4, iter.max=50)
+tp <- 0
+tn <- 0
+fp <- 0
+fn <- 0
+for (i in seq(1,4)){
   index <- which(cluster$cluster == i)
   in_clus <- features$y[index]
   homs <- as.numeric(table(in_clus)["0"])
   hets <- as.numeric(table(in_clus)["1"])
   if (homs > hets){
-    correct <- correct + homs
+    tn <- tn + homs
+    fp <- fp + hets
   } else {
-    correct <- correct + hets
+    tp <- tp + hets
+    fn <- fn + homs
   }
 }
+accuracy <- (tp+tn)/(tp+fn+fp+tn)
+recall <- tp/(tp+fn)
+precision <- tp/(tp+fp)
+f1 <- 2*recall*precision/(recall+precision)
+
+round(data.frame(c(accuracy, precision, recall, f1),
+           row.names=c("accuracy","precision",
+                       "recall","f1-score")),3)
 #+END_SRC
+
+#+RESULTS:
+| accuracy  | 0.727 |
+| precision |     1 |
+| recall    | 0.684 |
+| f1-score  | 0.813 |
+
+#+BEGIN_SRC R :session :exports results :results table :rownames yes :colnames yes
+HomOrHet <- ifelse(features$y==0, "HOM", "HET")
+clus <- paste0("CLUSTER_", cluster$cluster)
+table(clus, HomOrHet)
+#+END_SRC
+
+#+RESULTS:
+|           | HET | HOM |
+|-----------+-----+-----|
+| CLUSTER_1 |  18 |   8 |
+| CLUSTER_2 |   8 |   4 |
+| CLUSTER_3 |   0 |   2 |
+| CLUSTER_4 |   0 |   4 |
+
+Anche il questo caso il cluster ottiene performance decenti, ma il primo modello riusciva a distinguire le due immagini in una maniera piu' decente e con meno cluster.
 
 * Conclusioni
 Con questo Progetto si è costruito un modello statistico efficace e facilmente interpretabile da un esperto di dominio per prevedere l'eterogeneità del tumore.

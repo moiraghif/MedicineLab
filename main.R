@@ -105,43 +105,6 @@ round(summary(data.pca)$importance[, 1:6], 3)
 
 data <- data.pca$x[,1:6]
 
-library(dbscan)
 cluster <- dbscan::dbscan(data, 3.5)
-
-library(factoextra)
-
-ncluster_score <- c()
-for (num_clus in seq(1,15)){
-  cluster <- factoextra::hkmeans(data, num_clus)
-  correct <- 0
-  # Calculate accuracy based on the mode of the cluster.
-  for (i in seq(1,num_clus)){
-    index <- which(cluster$cluster == i)
-    in_clus <- features$y[index]
-    homs <- as.numeric(table(in_clus)["0"])
-    hets <- as.numeric(table(in_clus)["1"])
-    if (homs > hets){
-      correct <- correct + homs
-    } else {
-      correct <- correct + hets
-    }
-  }
-  ncluster_score <- c(ncluster_score,
-                      correct / dim(unsupervised_features)[1])
-}
-
-cluster <- factoextra::hkmeans(data, 7)
-correct <- 0
-for (i in seq(1,num_clus)){
-  index <- which(cluster$cluster == i)
-  in_clus <- features$y[index]
-  homs <- as.numeric(table(in_clus)["0"])
-  hets <- as.numeric(table(in_clus)["1"])
-  if (homs > hets){
-    correct <- correct + homs
-  } else {
-    correct <- correct + hets
-  }
-}
 
 summary(mod_full)
