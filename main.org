@@ -12,7 +12,7 @@
 Obiettivo del presente Progetto è di fornire due modelli predittivi che riescano a riconoscere i tumori omogenei da quelli eterogenei.
 Infatti l'eterogeneità del tumore rappresenta una difficoltà aggiuntiva nella fase di trattamento, rendendolo maggiormente resistente alle cure.
 Il primo modello, /supervised/, sarà facilmente interpretabile da un esperto di dominio, in modo tale da supportare le sue decisioni senza sostituirsi completamente ad esso.
-Tale modello sarà poi confrontato con uno /unsupervised/, anch'esso di facile interpretazione, che sottolinea le analogie tra i singoli casi.
+Tale modello sarà poi confrontato con uno /unsupervised/, che sottolinea le analogie tra i singoli casi.
 #+end_abstract
 
 * Indice :ignore:
@@ -24,7 +24,7 @@ Tale modello sarà poi confrontato con uno /unsupervised/, anch'esso di facile i
 
 * Introduzione
 Si è deciso di sviluppare il presente Progetto coi linguaggi di programmazione Python ed R, data la forte crescita del loro uso sia in ambiente accademico che produttivo.
-Il primo è usato soprattutto per l'estrazione delle /features/ dalle immagini, grazie alla libreria [[https://github.com/Radiomics/pyradiomics][=pyradiomics=]], mentre il secondo per l'analisi dei dati, data l'ampia disponibilità di modelli di /machine learning/ già implementati.
+Il primo è usato soprattutto per l'estrazione delle /features/ dalle immagini, grazie alla libreria [[https://github.com/Radiomics/pyradiomics][=pyradiomics=]] che offre numerosi algoritmi, mentre il secondo per l'analisi dei dati, data l'ampia scelta di librerie di /machine learning/.
 
 #+BEGIN_SRC python :session :tangle yes :exports none :results none
 import pandas as pd
@@ -121,7 +121,7 @@ for z in range(x.shape[2]):
 [[file:images/sample.png]]
 
 
-Mentre le dimensioni dei /voxel/ sono fisse per tutti i files, l'immagine è ritagliata sulla lesione in modo specifico, tralasciando le parti adiacenti: le dimensioni variano in base alla dimensione della lesione stessa.
+Mentre le dimensioni dei /voxel/ sono fisse per tutti i file, l'immagine è ritagliata sulla lesione in modo specifico, tralasciando le parti adiacenti: le dimensioni variano in base alla dimensione della lesione stessa.
 
 #+BEGIN_SRC python :session :exports results :results dataframe :rownames yes :colnames no
 dim_x = x_1.GetMetaData("pixdim[1]")
@@ -149,7 +149,7 @@ Questo approccio comporta una serie di vantaggi, primo tra tutti la modularità 
 L'estrazione delle /features/ mappa le immagini in uno spazio di dimensionalità molto minore e di dimensioni fisse, rendendo più semplice l'analisi dato il numero esiguo di dati a disposizione.
 Infatti, un qualsiasi algoritmo di /machine learning/ ha bisogno di un numero significativo di dati per  ``apprendere'' in modo /data-driven/ cosa utilizzare nell'analisi.
 
-Per selezionare le /features/ da utilizzare, si è preso spunto da cite:imaging[fn::Gli autori usano i primi quattro momenti per stimare la differenza di eterogeneità di tumori alla cervicale nel tempo, a seguito di un trattamento.] e cite:gallivanone18_param_influen_pet_imagin_featur: si usano /features/ estratte direttamente dall'immagine, quali superficie della lesione o la sua sfericità, accompagnate da indici statistici più semplici quali i momenti dal primo fino al quarto (media, varianza, asimmetria e curtosi) dei valori dei singoli /voxel/ (tabella [[tbl_features]]).
+Per selezionare le /features/ da utilizzare, si è preso spunto da cite:imaging[fn::Gli autori usano i primi quattro momenti per stimare la differenza di eterogeneità di tumori alla cervicale nel tempo, a seguito di un trattamento.] e cite:gallivanone18_param_influen_pet_imagin_featur: si usano /features/ estratte direttamente dall'immagine, quali superficie della lesione o la sua sfericità, accompagnate da indici statistici più semplici quali i momenti di ordine dal primo fino al quarto (media, varianza, asimmetria e curtosi) dei valori dei singoli /voxel/ (tabella [[tbl_features]]).
 
 #+BEGIN_SRC R :session :tangle yes :exports none :results none
 rm(list = ls())
@@ -191,8 +191,8 @@ Si effettua dunque una prima selezione delle /features/ tramite il test di Mann-
 score <- c()
 for (i in seq(1, dim(features)[2] - 1)) {
   formula <- paste0(colnames(features)[i], " ~ y")
-  t_score <- wilcox.test(formula=as.formula(formula),
-                         data=features)$p.value
+  t_score <- wilcox.test(formula = as.formula(formula),
+                         data = features)$p.value
   score <- c(score, round(t_score, 3))
 }
 score_df <- data.frame(t(score))
@@ -239,7 +239,7 @@ ggcorrplot::ggcorrplot(
 #+RESULTS:
 [[file:images/corrplot.png]]
 
-Dalla figura [[features_corr]], si deduce quali variabili escludere ( =Maximum=, =Variance=, =Maximum3DDiameter=, =MinorAxisLength=, =Contrast= e =Sphericity=): la matrice risultante ha così dimensioni $44 \times 5$, dimensionalità adeguata per la costruzione del modello.
+Dal correlogramma (figura [[features_corr]]) si deduce quali variabili escludere (=Maximum=, =Variance=, =Maximum3DDiameter=, =MinorAxisLength=, =Contrast= e =Sphericity=): la matrice risultante ha una dimensionalità ridotta ($44 \times 5$), adeguata per la costruzione del modello.
 
 #+BEGIN_SRC R :session :tangle yes :exports none :results none
 new_cols <- setdiff(colnames(features),
@@ -250,6 +250,8 @@ new_cols <- setdiff(colnames(features),
 
 features <- features[, new_cols]
 #+END_SRC
+
+
 * Modello /supervised/
 Essendo la variabile risposta binaria (tumore /omogeneo/ o /eterogeneo/, rispettivamente 0 o 1), e volendo costruire un modello facilmente interpretabile per un esperto di dominio, si effettua una semplice regressione logistica.
 
@@ -265,6 +267,27 @@ formula <- stepAIC(glm(y ~  MajorAxisLength + SurfaceArea + Kurtosis +
                    k = log(nrow(features)))$formula
 mod_full <- glm(formula, data = features, family = binomial("logit"))
 #+END_SRC
+
+La selezione delle /features/ è effettuata tramite procedimento /stepwise/ usando l'indice BIC[fn::L'indice BIC rispetto all'indice AIC penalizza maggiormente l'inserimento di una nuova variabile con un numero ridotto di osservazioni.], con possibilità di reimmissione.
+Il numero di variabili significative si riduce quindi a tre: =SurfaceArea=, =Kurtosis= e =Skewness= (riassunti nella tabella [[tbl_model_coeff]] coi rispettivi p-value).
+
+#+BEGIN_SRC R :session :exports results :results tabular :colnames yes :rownames yes
+df <- summary(mod_full)$coefficients[, c(1, 4)]
+colnames(df) <- c("Stima", "p-value")
+round(df, 6)
+#+END_SRC
+
+#+LABEL: tbl_model_coeff
+#+CAPTION: Stima dei coefficienti del modello e loro significatività.
+#+RESULTS:
+|             |      Stima |  p-value |
+|-------------+------------+----------|
+| (Intercept) |  -4.295873 | 0.014587 |
+| SurfaceArea | -11.899879 | 0.005449 |
+| Kurtosis    |  -9.842963 | 0.008876 |
+| Skewness    |  -8.655905 | 0.007367 |
+
+#+COMMENT: TODO analisi dei risultati
 
 #+BEGIN_SRC R :session :tangle yes :exports none :results none
 accuracy <- function(y_true, y_hat) {
@@ -316,6 +339,10 @@ for (i in seq(1, k)) {
   out$f_1 <- c(out$f_1, f1(y_true, y_hat))
 }
 #+END_SRC
+
+Le prestazioni del modello sono calcolate col sistema /cross validation/, effettuando 30 iterazioni casuali dividendo i dati 80% /train set/ e 20% /test set/, così da avere stime robuste dei parametri e un intervallo di confidenza sufficientemente ristretto.
+La media degli indici di bontà è riportata nella tabella [[supervised_results]] assieme al rispettivo intervallo di confidenza al 99%.
+
 #+BEGIN_SRC R :session :exports results :results table :rownames yes :colnames yes
 out_df <- data.frame(index = c("accuracy", "precision", "recall", "f_1"))
 scores <- c()
@@ -335,6 +362,8 @@ rownames(out_df) <- out_df$index
 round(out_df[, c("average", "IDC_99")], 3)
 #+END_SRC
 
+#+LABEL: supervised_results
+#+CAPTION: Performance del modello supervisionato con intervallo di confidenza al 99%.
 #+RESULTS:
 |           | average | IDC_99 |
 |-----------+---------+--------|
@@ -343,78 +372,27 @@ round(out_df[, c("average", "IDC_99")], 3)
 | recall    |    0.89 |  0.059 |
 | f_1       |   0.899 |  0.041 |
 
-La selezione delle /features/ è effettuata tramite procedimento /stepwise/ (partendo dal modello pieno ed eliminando le variabili superflue, ma con la possibilità, a ogni iterazione, di reinserirle).
-Si è deciso di rimuovere alcune variabili a prescindere:
-- =sd= (la varianza della distribuzione della lesione), in quanto fortemente correlata con =mean= (0.93) e di più difficile interpretazione;
-- =area= (la superficie della lesione), in quanto la sua stima è approssimativa e risulta essere eccessivamente correlata ad altri regressori, inquinando eccessivamente la qualità dei dati;
-- =sphere= (il volume della sfera equivalente), data la sua forte correlazione con la variabile =volume= (0.86) e la più difficile interpretabilità.
-#+LATEX: \newline
-Avendo a disposizione pochi dati, il procedimento è effettuato con l'indice AIC, che considera la capacità di generalizzazione del modello complessivo risultante (salvo poi verificare le /performance/ su un /test set/ composto da dati nuovi, rappresentante circa il 20% di quelli totali).
-Alla fine del procedimento, il modello risultante comprende solo tre regressori (più l'intercetta), come mostrato in tabella [[tbl_model_coeff]].
-
-#+BEGIN_SRC R :session :exports results :results tabular :colnames yes :rownames yes
-df <- summary(mod_full)$coefficients[, c(1, 4)]
-colnames(df) <- c("Stima", "p-value")
-round(df, 6)
-#+END_SRC
-
-#+LABEL: tbl_model_coeff
-#+CAPTION: Stima dei coefficienti del modello e loro significatività.
-#+RESULTS:
-|             |      Stima |  p-value |
-|-------------+------------+----------|
-| (Intercept) |  -4.295873 | 0.014587 |
-| SurfaceArea | -11.899879 | 0.005449 |
-| Kurtosis    |  -9.842963 | 0.008876 |
-| Skewness    |  -8.655905 | 0.007367 |
-
-
-Si noti come i coefficienti maggiormente significativi siano l'asimmetria =sk= e il volume =volume=: la probabilità che il tumore sia eterogeneo è tanto maggiore quanto più grande è la lesione e quanto più pesante è la coda positiva della distribuzione.
-Si può ipotizzare infatti che questa coda positiva sia costituita da sotto-componenti particolarmente aggressivi del tumore, quindi ``ghiotti'' di traccianti e di conseguenza maggiormente visibili nell'immagine.
+Si calcola quindi anche la matrice di confusione (tabella [[supervised_confusion_matrix]]), e si nota che l'unico errore è stato commesso catalogando come eterogenea una variabile omogenea.
 
 #+BEGIN_SRC R :session :exports results :results tabular :colnames yes :rownames yes
 previsions <- data.frame(prevision = ifelse(predict(mod, test_set) > 0.5,
-                                            "heterogeneous",
-                                            "homogeneous"),
+                                            "prevision: heterogeneous",
+                                            "prevision: homogeneous"),
                          real = ifelse(test_set$y == 1,
                                        "heterogeneous",
                                        "homogeneous"))
 conf_matrix <- table(previsions)
 #+END_SRC
 
-#+LABEL: mod_confusion_matrix
+#+LABEL: supervised_confusion_matrix
 #+CAPTION: Matrice di confusione del modello di regressione logistica per il /test set/; sulle righe le previsioni e sulle colonne i valori reali.
 #+RESULTS:
-|               | heterogeneous | homogeneous |
-|---------------+---------------+-------------|
-| heterogeneous |             4 |           0 |
-| homogeneous   |             1 |           4 |
+|                          | heterogeneous | homogeneous |
+|--------------------------+---------------+-------------|
+| prevision: heterogeneous |             4 |           1 |
+| prevision: homogeneous   |             0 |           4 |
 
 
-Come si può notare nella matrice di confusione (figura [[mod_confusion_matrix]]), il modello ha commesso un solo errore catalogando come eterogenea una lesione omogenea.
-
-#+BEGIN_SRC R :session :exports results :results tabular :rownames yes
-out_accuracy  <- sum(diag(conf_matrix)) / sum(conf_matrix)
-out_precision <- conf_matrix["heterogeneous", "heterogeneous"] /
-                      sum(conf_matrix["heterogeneous", ])
-out_recall    <- conf_matrix["heterogeneous", "heterogeneous"] /
-                      sum(conf_matrix[, "heterogeneous"])
-out_f1        <- 2 * (out_precision * out_recall) / (out_precision + out_recall)
-round(c("accuracy" = out_accuracy,
-        "precision" = out_precision,
-        "recall" = out_recall,
-        "f_1" = out_f1), 2)
-#+END_SRC
-
-#+RESULTS:
-| accuracy  | 0.89 |
-| precision |    1 |
-| recall    |  0.8 |
-| f_1       | 0.89 |
-
-#+LABEL: mod_results
-#+CAPTION: Indici di accuratezza per il modello.
-#+RESULTS:
 
 * Modello /semi-supervised/
 
