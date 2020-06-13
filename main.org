@@ -44,7 +44,6 @@ extract_this = {"shape":      ["Maximum3DDiameter",
                                "SurfaceVolumeRatio",
                                "Flatness", "VoxelVolume"],
                 "firstorder": ["Entropy", "Kurtosis", "Maximum",
-                               "MeanAbsoluteDeviation",
                                "Mean", "Median", "Minimum",
                                "MeanAbsoluteDeviation",
                                "Skewness", "Variance"],
@@ -218,6 +217,7 @@ t(score_df[, accepted])
 | Maximum           | 0.008 |
 | Skewness          |  0.04 |
 | Variance          | 0.025 |
+| Contrast          |  0.02 |
 | ngtdm_Coarseness  | 0.034 |
 
 Effettuata questa prima cernita, si riduce ulteriormente il numero di /features/, in modo tale da evitare multi-collinearità tra le variabili, rispettando così le premesse del modello lineare.
@@ -444,9 +444,9 @@ round(summary(data.pca)$importance[, 1:6], 3)
 #+RESULTS:
 |                        |   PC1 |   PC2 |   PC3 |   PC4 |   PC5 |   PC6 |
 |------------------------+-------+-------+-------+-------+-------+-------|
-| Standard deviation     | 3.103 | 2.086 | 1.819 | 1.101 | 0.914 | 0.684 |
-| Proportion of Variance | 0.459 | 0.207 | 0.158 | 0.058 |  0.04 | 0.022 |
-| Cumulative Proportion  | 0.459 | 0.666 | 0.823 | 0.881 | 0.921 | 0.943 |
+| Standard deviation     | 3.335 | 2.152 | 1.822 | 1.119 | 0.938 | 0.723 |
+| Proportion of Variance | 0.483 | 0.201 | 0.144 | 0.054 | 0.038 | 0.023 |
+| Cumulative Proportion  | 0.483 | 0.685 | 0.829 | 0.884 | 0.922 | 0.945 |
 
 
 Nello spazio della PCA si effettua un raggruppamento usando l'algoritmo DBScan, basato sulla densità delle osservazioni.
@@ -582,10 +582,10 @@ round(data.frame(c(accuracy, precision, recall, f1),
 #+LABEL: hkmeans_performance
 #+CAPTION: Indici di bontà per HK-Means con $k = 4$.
 #+RESULTS:
-| accuracy  | 0.705 |
-| precision | 0.278 |
+| accuracy  | 0.727 |
+| precision | 0.333 |
 | recall    |     1 |
-| f_1       | 0.435 |
+| f_1       |   0.5 |
 
 #+BEGIN_SRC R :session :exports results :results table :rownames yes :colnames yes
 HomOrHet <- ifelse(features$y == 0, "homogeneous", "heterogeneous")
@@ -598,9 +598,9 @@ table(clus, HomOrHet)
 #+RESULTS:
 |     | heterogeneous | homogeneous |
 |-----+---------------+-------------|
-| C_1 |             7 |          18 |
-| C_2 |             6 |           8 |
-| C_3 |             3 |           0 |
+| C_1 |             8 |          18 |
+| C_2 |             4 |           8 |
+| C_3 |             4 |           0 |
 | C_4 |             2 |           0 |
 
 # Anche il questo caso il cluster ottiene performance decenti, ma il primo modello riusciva a distinguire le due immagini in una maniera piu' decente e con meno cluster.
