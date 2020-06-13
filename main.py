@@ -19,8 +19,8 @@ extract_this = {"shape":      ["Maximum3DDiameter",
                                "Mean", "Median", "Minimum",
                                "MeanAbsoluteDeviation",
                                "Skewness", "Variance"],
-                # "glcm":       ["Autocorrelation", "Contrast"],  # TODO: uncomment
-                # "glrlm":      ["HighGrayLevelRunEmphasis"],     # TODO: uncomment
+                "glcm":       ["Autocorrelation", "Contrast"],  # TODO: uncomment
+                "glrlm":      ["HighGrayLevelRunEmphasis"],     # TODO: uncomment
                 "ngtdm":      ["Contrast", "Coarseness"]}
 
 #initialize the featureextractor and define the required features
@@ -41,10 +41,10 @@ for key in extract_this.keys():
 features_name.append("y")
 
 homImagePath = "./code__esempi/lesions/homogeneous/nifti/"
-homImages = [(homImagePath+file, 1) for file in os.listdir(homImagePath)]
+homImages = [(homImagePath+file, 0) for file in os.listdir(homImagePath)]
 
 hetImagePath = "./code__esempi/lesions/heterogeneous/nifti/"
-hetImages = [(hetImagePath+file, 0) for file in os.listdir(hetImagePath)]
+hetImages = [(hetImagePath+file, 1) for file in os.listdir(hetImagePath)]
 
 images = homImages + hetImages
 
@@ -63,4 +63,4 @@ res = pool.map(get_feature_df, images)
 #the final df
 final_df = pd.DataFrame(res, columns=features_name)
 
-# final_df.to_csv("feature_dataset.csv", index=None)  # TODO: uncomment
+final_df.to_csv("feature_dataset.csv", index=None)  # TODO: uncomment
