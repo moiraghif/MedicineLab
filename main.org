@@ -47,8 +47,8 @@ extract_this = {"shape":      ["Maximum3DDiameter",
                                "Mean", "Median", "Minimum",
                                "MeanAbsoluteDeviation",
                                "Skewness", "Variance"],
-                # "glcm":       ["Autocorrelation", "Contrast"],  # TODO: uncomment
-                # "glrlm":      ["HighGrayLevelRunEmphasis"],     # TODO: uncomment
+                "glcm":       ["Autocorrelation", "Contrast"],  # TODO: uncomment
+                "glrlm":      ["HighGrayLevelRunEmphasis"],     # TODO: uncomment
                 "ngtdm":      ["Contrast", "Coarseness"]}
 
 #initialize the featureextractor and define the required features
@@ -85,13 +85,13 @@ def get_feature_df(path):
     return result
 
 #some parallelization
-pool = mp.Pool(4)
+pool = mp.Pool(3)
 res = pool.map(get_feature_df, images)
 
 #the final df
 final_df = pd.DataFrame(res, columns=features_name)
 
-# final_df.to_csv("feature_dataset.csv", index=None)  # TODO: uncomment
+final_df.to_csv("feature_dataset.csv", index=None)  # TODO: uncomment
 #+END_SRC
 
 Caricate le immagini (si ha un esempio con figura [[section_example]]), si nota che queste rappresentano la lesione già segmentata.
@@ -340,7 +340,7 @@ for (i in seq(1, k)) {
 }
 #+END_SRC
 
-Le prestazioni del modello sono calcolate col sistema /cross validation/, effettuando 30 iterazioni casuali dividendo i dati 80% /train set/ e 20% /test set/, così da avere stime robuste dei parametri e un intervallo di confidenza sufficientemente ristretto.
+Le prestazioni del modello sono calcolate col sistema /iterated holdout/, effettuando 30 iterazioni casuali dividendo i dati 80% /train set/ e 20% /test set/, così da avere stime robuste dei parametri e un intervallo di confidenza sufficientemente ristretto.
 La media degli indici di bontà è riportata nella tabella [[supervised_results]] assieme al rispettivo intervallo di confidenza al 99%.
 
 #+BEGIN_SRC R :session :exports results :results table :rownames yes :colnames yes
@@ -456,7 +456,7 @@ La figura [[fig:DBScan_eps]] suggerisce un parametro $\varepsilon = 3.5$ (con 5-
 # Si effettua un primo tipo di clustering basato sulla densita' (nello spazio dei PCA) usando uno dei modelli piu' usati per il clustering, il DBScan. Nella Figura [[fig:DBScan_eps]] notiamo che eps piu' vantaggioso usando la distanza di 5-NN risulta vicino al 3.5, quindi viene scelto esso come il valore ideale, per il clustering.
 
 #+BEGIN_SRC R :session :exports results :results graphics file :file images/dbscan_eps_selection.png
-data <- data.pca$x[, 1:6]
+data <- data.pca$x[, ]
 
 dbscan::kNNdistplot(data, k = 5)
 abline(h = 3.5, lty = 2, col = "red")
@@ -474,20 +474,20 @@ cluster <- dbscan::dbscan(data, 3.5)
 #+END_SRC
 
 #+BEGIN_SRC R :session :exports results :results table :rownames yes
-out <- data.frame("accuracy"  = accuracy(cluster$cluster, features$y),
-                  "precision" = precision(cluster$cluster, features$y),
-                  "recall"    = recall(cluster$cluster, features$y),
-                  "f_1"       = f1(cluster$cluster, features$y))
+out <- data.frame("accuracy"  = accuracy(1 - cluster$cluster, features$y),
+                  "precision" = precision(1 - cluster$cluster, features$y),
+                  "recall"    = recall(1 - cluster$cluster, features$y),
+                  "f_1"       = f1(1 - cluster$cluster, features$y))
 round(t(out), 3)
 #+END_SRC
 
 #+LABEL: dbscan_performance
 #+CAPTION: Indici di bontà per la clusterizzazione con DBScan.
 #+RESULTS:
-| accuracy  | 0.227 |
+| accuracy  |  0.75 |
 | precision |   0.5 |
-| recall    | 0.265 |
-| f_1       | 0.346 |
+| recall    | 0.818 |
+| f_1       | 0.621 |
 
 
 #+BEGIN_SRC R :session :exports results :results table :rownames yes :colnames yes
@@ -501,11 +501,11 @@ table(clus, HomOrHet)
 #+RESULTS:
 |     | heterogeneous | homogeneous |
 |-----+---------------+-------------|
-| C_0 |             9 |           1 |
-| C_1 |             9 |          25 |
+| C_0 |             9 |           2 |
+| C_1 |             9 |          24 |
 
-Nonostante le buone /performance/ del modello (riassunte nella tabella [[dbscan_performance]]), si nota che il secondo /cluster/ $C_1$ contiene un numero non indifferente di immagini omogenee.
-Infatti l'algoritmo è riuscito a individuare un solo /cluster/ ($C_0$) ben definito, considerando la variabile risposta.
+Nonostante le buone /performance/ del modello (riassunte nella tabella [[dbscan_performance]]), si nota che il secondo /cluster/ $C_1$ contiene un numero non indifferente di immagini eterogenee.
+Infatti l'algoritmo è riuscito a individuare un solo /cluster/ ($C_0$, che e' il cluster di elementi rigettati) ben definito, considerando la variabile risposta.
 
 Si tenta quindi un altro approccio, con l'algoritmo /HK-means/, versione gerarchica del ben più noto /K-means/.
 L'algoritmo è quindi testato con un numero di /cluster/ $k$ da 2 a 15, calcolando per ciascuno la distanza nei gruppi (/distance between/).

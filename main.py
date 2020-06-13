@@ -56,7 +56,7 @@ def get_feature_df(path):
     return result
 
 #some parallelization
-pool = mp.Pool(4)
+pool = mp.Pool(3)
 res = pool.map(get_feature_df, images)
 
 #the final df
