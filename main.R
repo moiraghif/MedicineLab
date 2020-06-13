@@ -35,7 +35,7 @@ library(MASS)
 
 
 formula <- stepAIC(glm(y ~  MajorAxisLength + SurfaceArea + Kurtosis +
-                            Skewness + ngtdm_Coarseness,
+                            Skewness + Coarseness,
                        data = features,
                        family = binomial("logit")),
                    direction = "both",
@@ -98,12 +98,14 @@ features <- features %>%
             ~(scale(.) %>% as.vector))
 features$y <- as.factor(features$y)
 
+features <- features[, c(accepted, "y")]
+
 unsupervised_features <- features[, 1:(dim(features)[2] - 1)]
 data.pca <- prcomp(unsupervised_features)
 
-data <- data.pca$x[,1:6]
+data <- data.pca$x[,1:4]
 
-cluster <- dbscan::dbscan(data, 3.5)
+cluster <- dbscan::dbscan(data, 1.9)
 
 ncluster_score <- c()
 for (num_clus in seq(2, 15)){

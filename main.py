@@ -18,8 +18,6 @@ extract_this = {"shape":      ["Maximum3DDiameter",
                                "Mean", "Median", "Minimum",
                                "MeanAbsoluteDeviation",
                                "Skewness", "Variance"],
-                "glcm":       ["Autocorrelation", "Contrast"],  # TODO: uncomment
-                "glrlm":      ["HighGrayLevelRunEmphasis"],     # TODO: uncomment
                 "ngtdm":      ["Contrast", "Coarseness"]}
 
 #initialize the featureextractor and define the required features
@@ -32,10 +30,7 @@ features_name = ["VoxelNum"]
 for key in extract_this.keys():
     for elem in extract_this.get(key):
         features.append("original_" + key + "_" + elem)
-        if key == "ngtdm":
-            features_name.append(key + "_" + elem)
-        else:
-            features_name.append(elem)
+        features_name.append(elem)
 
 features_name.append("y")
 
@@ -62,4 +57,4 @@ res = pool.map(get_feature_df, images)
 #the final df
 final_df = pd.DataFrame(res, columns=features_name)
 
-final_df.to_csv("feature_dataset.csv", index=None)  # TODO: uncomment
+final_df.to_csv("feature_dataset.csv", index=None)
