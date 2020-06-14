@@ -9,7 +9,7 @@
 
 * Abstract :ignore:
 #+begin_abstract
-Obiettivo del presente Progetto è di fornire due modelli predittivi che riescano a riconoscere i tumori omogenei da quelli eterogenei.
+Obiettivo del presente Progetto è fornire due modelli predittivi che riconoscano i tumori omogenei da quelli eterogenei.
 Infatti l'eterogeneità del tumore rappresenta una difficoltà aggiuntiva nella fase di trattamento, rendendolo maggiormente resistente alle cure.
 Il primo modello, /supervised/, sarà facilmente interpretabile da un esperto di dominio, in modo tale da supportare le sue decisioni senza sostituirsi completamente ad esso.
 Tale modello sarà poi confrontato con uno /unsupervised/, che sottolinea le analogie tra i singoli casi.
@@ -24,7 +24,7 @@ Tale modello sarà poi confrontato con uno /unsupervised/, che sottolinea le ana
 
 * Introduzione
 Si è deciso di sviluppare il presente Progetto coi linguaggi di programmazione Python ed R, data la forte crescita del loro uso sia in ambiente accademico che produttivo.
-Il primo è usato soprattutto per l'estrazione delle /features/ dalle immagini, grazie alla libreria [[https://github.com/Radiomics/pyradiomics][=pyradiomics=]] che offre numerosi algoritmi, mentre il secondo per l'analisi dei dati, data l'ampia scelta di modelli di /machine learning/.
+Il primo è usato soprattutto per l'estrazione delle /features/ dalle immagini, grazie alla libreria [[https://github.com/Radiomics/pyradiomics][=pyradiomics=]] che offre numerosi algoritmi; mentre il secondo per l'analisi dei dati, data l'ampia scelta di modelli di /machine learning/.
 
 #+BEGIN_SRC python :session :tangle yes :exports none :results none
 import pandas as pd
@@ -170,16 +170,16 @@ round(head(features[, 1:4]), 3)
 #+RESULTS:
 | VoxelNum | Maximum3DDiameter | MajorAxisLength | Sphericity |
 |----------+-------------------+-----------------+------------|
-|    0.485 |             0.356 |           0.028 |      0.787 |
-|   -0.295 |            -0.719 |          -0.747 |       0.85 |
+|   -1.337 |            -4.107 |          -3.071 |      1.116 |
+|   -0.036 |             0.727 |            0.35 |     -0.381 |
 |    0.458 |             0.118 |          -0.106 |      0.956 |
-|   -0.341 |              -0.6 |          -0.021 |     -1.781 |
-|   -0.326 |            -0.719 |          -0.751 |      0.736 |
-|   -0.739 |             -0.14 |           0.062 |     -1.256 |
+|    0.192 |             0.745 |            0.71 |     -0.546 |
+|   -0.654 |              0.14 |           0.664 |     -0.124 |
+|   -0.329 |            -0.508 |          -0.692 |      0.607 |
 
 
 Tuttavia il numero di /features/ estratte è ancora elevato rispetto al numero di dati a disposizione (la matrice di /input/ ha dimensioni $44 \times 20$).
-Si effettua dunque una prima selezione delle /features/ tramite il test di Mann-Whitney, equivalente non parametrico del t-test (i risultati sono riassunti nella tabella [[tbl_mann_whitney]]), per escludere le variabili la cui significatività, prese singolarmente, è minore del 5%.
+Si effettua dunque una prima selezione delle /features/ tramite il test di Mann-Whitney, equivalente non parametrico del t-test (i risultati sono riassunti nella tabella [[tbl_mann_whitney]]), per escludere le variabili che, prese singolarmente, hanno una significatività minore del 95%.
 
 #+BEGIN_SRC R :session :tangle yes :exports none :results none
 score <- c()
@@ -197,32 +197,40 @@ features <- features[, c(accepted, "y")]
 #+END_SRC
 
 #+BEGIN_SRC R :session :exports results :results table :rownames yes
-t(score_df[order(score_df)])
+out <- t(score_df[order(score_df)])
+significativa <- function(x) {
+  if (x < 0.001) return("***")
+  if (x < 0.01)  return("**")
+  if (x < 0.05)  return("*")
+  if (x < 0.1)   return(".")
+                 return("")
+}
+cbind(out, lapply(out[, 1], significativa))
 #+END_SRC
 
 #+LABEL: tbl_mann_whitney
 #+CAPTION: p-value delle varibili dal test di Mann-Whitney.
 #+RESULTS:
-| Kurtosis              | 0.002 |
-| Sphericity            | 0.003 |
-| MinorAxisLength       | 0.003 |
-| Maximum               | 0.008 |
-| Maximum3DDiameter     | 0.011 |
-| MajorAxisLength       | 0.012 |
-| SurfaceArea           | 0.016 |
-| Variance              | 0.025 |
-| Coarseness            | 0.034 |
-| Skewness              |  0.04 |
-| MeanAbsoluteDeviation | 0.051 |
-| Mean                  | 0.079 |
-| Entropy               | 0.102 |
-| Median                | 0.137 |
-| Contrast              | 0.157 |
-| Minimum               | 0.204 |
-| VoxelNum              | 0.219 |
-| VoxelVolume           | 0.219 |
-| Flatness              | 0.291 |
-| SurfaceVolumeRatio    | 0.878 |
+| Kurtosis              | 0.002 | ** |
+| Sphericity            | 0.003 | ** |
+| MinorAxisLength       | 0.003 | ** |
+| Maximum               | 0.008 | ** |
+| Maximum3DDiameter     | 0.011 | *  |
+| MajorAxisLength       | 0.012 | *  |
+| SurfaceArea           | 0.016 | *  |
+| Variance              | 0.025 | *  |
+| Coarseness            | 0.034 | *  |
+| Skewness              |  0.04 | *  |
+| MeanAbsoluteDeviation | 0.051 | .  |
+| Mean                  | 0.079 | .  |
+| Entropy               | 0.102 |    |
+| Median                | 0.137 |    |
+| Contrast              | 0.157 |    |
+| Minimum               | 0.204 |    |
+| VoxelNum              | 0.219 |    |
+| VoxelVolume           | 0.219 |    |
+| Flatness              | 0.291 |    |
+| SurfaceVolumeRatio    | 0.878 |    |
 
 Effettuata questa prima cernita, si riduce ulteriormente il numero di /features/, in modo tale da evitare multi-collinearità tra le variabili, rispettando così le premesse del modello lineare.
 
@@ -254,7 +262,7 @@ new_cols <- setdiff(colnames(features),
 features <- features[, new_cols]
 #+END_SRC
 
-Nella figura [[fig:eda]], viene mostrata la distribuzione di densità delle variabili accetate condizionati alla tipologia di lesioni, in modo da vedere graficamente la differenza nella loro distribuzione.
+Nella figura [[fig:eda]], viene mostrata la distribuzione di densità delle variabili accettate, condizionata alla tipologia di lesione, in modo da vedere graficamente la differenza nella distribuzione.
 
 #+BEGIN_SRC R :session :exports results :results file graphics :file images/plot1.png
 library(ggridges)
@@ -277,8 +285,9 @@ HisMAL <- ggplot(data=features,
   xlab("MajorAxisLength") +
   ylab("Density") +
   theme(legend.position="none")+
-                  theme_economist() +
-                  theme_solarized(light=T)+
+  theme_minimal() +
+                  # theme_economist() +
+                  # theme_solarized(light=T)+
                   scale_colour_solarized('blue') + tema
 
 HisSA <- ggplot(data=features,
@@ -287,8 +296,9 @@ HisSA <- ggplot(data=features,
   xlab("SurfaceArea") +
   ylab("Density") +
   theme(legend.position="none")+
-                  theme_economist() +
-                  theme_solarized(light=T)+
+  theme_minimal() +
+                  # theme_economist() +
+                  # theme_solarized(light=T)+
                   scale_colour_solarized('blue') + tema
 
 HisK <- ggplot(data=features,
@@ -297,8 +307,9 @@ HisK <- ggplot(data=features,
   xlab("Kurtosis") +
   ylab("Density") +
   theme(legend.position="none")+
-                  theme_economist() +
-                  theme_solarized(light=T)+
+  theme_minimal() +
+                  # theme_economist() +
+                  # theme_solarized(light=T)+
                   scale_colour_solarized('blue') + tema
 
 HisS <- ggplot(data=features,
@@ -307,8 +318,9 @@ HisS <- ggplot(data=features,
   xlab("Skewness") +
   ylab("Density") +
   theme(legend.position="none")+
-                  theme_economist() +
-                  theme_solarized(light=T)+
+  theme_minimal() +
+                  # theme_economist() +
+                  # theme_solarized(light=T)+
                   scale_colour_solarized('blue') + tema
 
 HisC <- ggplot(data=features,
@@ -317,8 +329,9 @@ HisC <- ggplot(data=features,
   xlab("Coarseness") +
   ylab("Density") +
   theme(legend.position="none")+
-                  theme_economist() +
-                  theme_solarized(light=T)+
+  theme_minimal() +
+                  # theme_economist() +
+                  # theme_solarized(light=T)+
                   scale_colour_solarized('blue') + tema
 
 features %>% dplyr::select(-Hom) -> features
@@ -335,7 +348,7 @@ grid.arrange(HisMAL + ggtitle(""),
 #+END_SRC
 
 #+LABEL: fig:eda
-#+CAPTION: Density plot delle variabili scelte per tipo di lesioni.
+#+CAPTION: /Density plot/ delle variabili scelte per tipo di lesione.
 #+RESULTS:
 [[file:images/plot1.png]]
 
@@ -374,7 +387,7 @@ round(df, 6)
 | Kurtosis    |  9.842963 | 0.008876 |
 | Skewness    |  8.655905 | 0.007367 |
 
-Il modello, come ci si aspettava, sottolinea la correlazione tra la superficie della lesione e la sua eterogeneità: un tumore eterogeneo, infatti, ha spesso una forma irregolare e dunque una superficie maggiore.
+Il modello, come previsto, sottolinea la correlazione tra la superficie della lesione e la sua eterogeneità: un tumore eterogeneo, infatti, ha spesso una forma irregolare e dunque una superficie maggiore.
 Inoltre si nota come anche curtosi e asimmetria positiva siano relazionate con la probabilità di eterogeneità: se un tumore è composto da componenti più ``ghiotte'' (e dunque aggressive), i rispettivi /voxel/ risultano maggiormente visibili e quindi entrambi gli indici aumentano.
 
 #+BEGIN_SRC R :session :tangle yes :exports none :results none
@@ -440,7 +453,7 @@ for (index in out_df$index) {
   score <- score[!is.nan(score)]
   mu <- mean(score)
   s  <- sd(score)
-  d <- qt(0.99, length(score) - 1) * s / sqrt(length(score))
+  d <- qt(0.995, length(score) - 1) * s / sqrt(length(score))
   scores <- c(scores, mu)
   idc <- c(idc, d)
 }
@@ -455,12 +468,12 @@ round(out_df[, c("average", "IDC_99")], 3)
 #+RESULTS:
 |           | average | IDC_99 |
 |-----------+---------+--------|
-| accuracy  |   0.878 |  0.038 |
-| precision |   0.838 |  0.085 |
-| recall    |   0.857 |  0.083 |
-| f_1       |   0.822 |  0.066 |
+| accuracy  |   0.878 |  0.042 |
+| precision |   0.838 |  0.095 |
+| recall    |   0.857 |  0.093 |
+| f_1       |   0.822 |  0.074 |
 
-Si calcola quindi anche la matrice di confusione (tabella [[supervised_confusion_matrix]]), e si nota che sia molto performante in questo caso.
+La tabella [[supervised_confusion_matrix]] mostra la /confusion matrix/ (del /test set/) dell'ultima iterazione: il modello ha una buona capacità predittiva.
 
 #+BEGIN_SRC R :session :exports results :results tabular :colnames yes :rownames yes
 previsions <- data.frame(prevision = ifelse(predict(mod, test_set) > 0.5,
@@ -481,7 +494,12 @@ conf_matrix <- table(previsions)
 | prediction: homogeneous   |             2 |           4 |
 
 * Modello /unsupervised/
-Considerando tutti i dati (quindi più informazione possibile), standardizzati, si effettua una divisione in /clusters/ con l'ipotesi che sia possibile raggruppare le due tipologie di tumore.
+
+Dopo aver standardizzato le variabili che hanno passato il test di Mann-Whitney (escludendo le rimanenti che si presume apportino solo rumore nella distribuzione di dati), le si utilizza per effettuare la divisone in /clusters/.
+Si ipotizza così che i tumori tra loro simili appartengano alla stessa classe.
+
+# Considerando le variabili che hanno passato il test di Mann-Whitney, dopo averle standardizzate, si effettua una divisione in /clusters/ con l'ipotesi che sia possibile raggruppare le due tipologie di tumore.
+# Si presume così che le altre variabili apportino solo rumore nella distribuzione dei dati.
 
 #+BEGIN_SRC R :session :tangle yes :exports none :results none
 features <- readr::read_csv("./feature_dataset.csv")
@@ -493,28 +511,27 @@ features$y <- as.factor(features$y)
 
 features <- features[, c(accepted, "y")]
 #+END_SRC
-Vengono rimosse dal dataset, tutte le features che non avevano superato il test di Mann-Whitney, infatti, possono essere viste come variabili che potenzialmente introdurrano rumore nel clustering.
 
 Le immagini di tumori quindi sono collocate in uno spazio vettoriale in base al risultato della /Principal Component Analysis/ (PCA): si selezionano così le prime 4 componenti, che spiegano almeno il 5% della varianza della distribuzione.
-Così, oltre a operare su una matrice di dimensioni ridotte, si riduce anche la quantità di rumore data dall'elevato numero di variabili (a cui si esclude la variabile risposta =y=, usata poi per calcolare la bontà del modello) spesso inutili.
-Dalla figura [[fig:pca_plot]] infatti si vede che all'aumentare del numero di componenti considerate, la percentuale di varianza spiegata dalla componente decresce: la soglia del 5% è un compromesso tra il segnale colto dal modello e la sua complessità (per i dettagli vedere la tabella [[table_pca]]). Le 4 componenti scelte spiegano complessivamente circa il 90% della varianza totale.
+Così, operando su una matrice di dimensioni ridotte, si riduce la quantità di rumore data dall'elevato numero di variabili (a cui si esclude la variabile risposta =y=, usata poi per calcolare la bontà del modello).
+Dalla figura [[fig:pca_plot]] infatti si evince che all'aumentare del numero di componenti considerate la percentuale di varianza spiegata dalla componente decresce: la soglia del 5% è un compromesso tra il segnale colto dal modello e la sua complessità (per i dettagli vedere la tabella [[table_pca]]). Le 4 componenti scelte spiegano complessivamente circa il 90% della varianza totale.
 
 
 #+BEGIN_SRC R :session :exports results :results graphics file :file images/pca_unsupervised.png
 eigen_values <- eigen(var(features %>% dplyr::select(-y)))$values
 perc_variance <- eigen_values / sum(eigen_values)
 
-data.frame(number_of_components = seq(1, dim(features)[2] - 1),
+data.frame(number_of_components = factor(seq(1, dim(features)[2] - 1)),
            variance=perc_variance) %>%
   ggplot(aes(x = number_of_components, y = variance)) +
-  geom_bar(stat = "identity") + geom_point(size = 3) +
-  geom_line() +
+  geom_bar(stat = "identity", aes(alpha = variance)) + geom_point(size = 3) +
+  geom_line(aes(x = seq(1, dim(features)[2] - 1))) +
   # geom_hline(aes(yintercept = 1), alpha = 0.3) +
   geom_hline(aes(yintercept = 0.05), color = "red",
-             alpha = 0.4) +
+             alpha = 1) +
   xlab("Number of Components") + ylab("% variance") +
   ggtitle("Selection of number of components of PCA") +
-  theme_minimal()
+  theme_minimal() + theme(legend.position = "none")
 #+END_SRC
 
 #+LABEL: fig:pca_plot
@@ -534,25 +551,35 @@ round(summary(data.pca)$importance[, 1:5], 3)
 #+LABEL: table_pca
 #+CAPTION: Alcune statistiche sulle prime componenti principali.
 #+RESULTS:
-|                        |   PC1 |   PC2 |   PC3 |   PC4 |   PC5 |
-|------------------------+-------+-------+-------+-------+-------|
-| Standard deviation     | 2.097 | 1.595 | 1.406 | 0.967 | 0.689 |
-| Proportion of Variance |   0.4 | 0.231 |  0.18 | 0.085 | 0.043 |
-| Cumulative Proportion  |   0.4 | 0.631 | 0.811 | 0.896 | 0.939 |
+|                        |  PC1 |   PC2 |   PC3 |   PC4 |   PC5 |
+|------------------------+------+-------+-------+-------+-------|
+| Standard deviation     | 1.95 | 1.552 | 1.329 | 0.959 | 0.689 |
+| Proportion of Variance | 0.38 | 0.241 | 0.177 | 0.092 | 0.047 |
+| Cumulative Proportion  | 0.38 | 0.621 | 0.798 |  0.89 | 0.937 |
 
 
 Nello spazio della PCA si effettua un raggruppamento usando l'algoritmo DBScan, basato sulla densità delle osservazioni.
 La figura [[fig:DBScan_eps]] suggerisce un parametro $\varepsilon \in (1.8, 2)$ (con 5-NN), si opta per il valore medio: questa configurazione sarà usata per la costruzione del modello.
 
 
-# Si effettua un primo tipo di clustering basato sulla densita' (nello spazio dei PCA) usando uno dei modelli piu' usati per il clustering, il DBScan. Nella Figura [[fig:DBScan_eps]] notiamo che eps piu' vantaggioso usando la distanza di 5-NN risulta vicino al 3.5, quindi viene scelto esso come il valore ideale, per il clustering.
-
 #+BEGIN_SRC R :session :exports results :results graphics file :file images/dbscan_eps_selection.png
 data <- data.pca$x[, 1:4]
+data_out <- dbscan::kNNdist(data, k = 5)
+data_order <- order(data_out)
 
-dbscan::kNNdistplot(data, k = 5)
-abline(h = 1.8, lty = 2, col = "red")
-abline(h = 2, lty = 2, col = "blue")
+data.frame(x = seq(1, length(data_out)),
+           y = data_out[data_order],
+           hom_het = features$y[data_order]) %>%
+ggplot2::ggplot(aes(x = x, y = y)) +
+  geom_line() +
+  geom_hline(aes(yintercept = 1.8), col = "red") +
+  geom_hline(aes(yintercept = 2.0), col = "blue") +
+  geom_point(size = 2, alpha = 0.3) +
+  xlab("Sample of points sorted by distance") +
+  ylab("5-NN distance") +
+  theme_minimal() +
+  theme(axis.text.x=element_blank(),
+        legend.position = "none")
 #+END_SRC
 
 #+LABEL: fig:DBScan_eps
@@ -597,17 +624,15 @@ table(clus, HomOrHet)
 | C_0 |            10 |           1 |
 | C_1 |             8 |          25 |
 
-Nonostante le buone /performance/ del modello (riassunte nella tabella [[dbscan_performance]]), si nota che il secondo /cluster/ $C_1$ contiene un numero non indifferente ma basso di immagini eterogenee.
+Nonostante le buone /performance/ del modello (riassunte nella tabella [[dbscan_performance]]), si nota che il secondo /cluster/ $C_1$ contiene un numero non indifferente, pur rimanendo ridotto, di immagini eterogenee (tabella [[dbscan_confusion_matrix]]).
 L'algoritmo è riuscito a individuare un /cluster/ ($C_0$, il cluster di elementi rigettati) ben definito, considerando la variabile risposta.
 
 Si tenta un altro approccio, con l'algoritmo /HK-means/, versione gerarchica del ben più noto /K-means/.
 L'algoritmo è quindi testato con un numero di /cluster/ $k$ da 2 a 15, calcolando per ciascuno la distanza nei gruppi (/distance between/).
-La figura [[fig:kmean_k]] mostra graficamente il procedimento: si sceglie $k = 4$ per evitare /overfitting/ dei dati, e siccome il tasso di aumento per $k > 4$ decresce fortemente.
-La bontà del raggruppamento invece (intesa come capacità predittiva) è riassunta nella tabella
+La figura [[fig:kmean_k]] mostra graficamente il procedimento: si sceglie $k = 4$ per evitare /overfitting/ dei dati, siccome il tasso di miglioramento per $k > 4$ decresce fortemente.
+La bontà del raggruppamento (intesa come capacità predittiva) è invece riassunta nella tabella
 [[hkmeans_performance]].
 
-# Pur avendo un'accuratezza non bassa, si vede che il secondo cluster contiene un numero di immagini omogenee non trascurabili, inoltre il DBScan e' riuscito a trovare solo un cluster, il /CLUSTER_0/ e' un cluster costituito da prova considerate non appartenenti a nessun cluster.
-# Quindi si tenta un altro approccio basato su un ibrido tra il clustering gerarchico e il k-means.
 
 #+BEGIN_SRC R :session :tangle yes :results none :exports none
 ncluster_score <- c()
@@ -619,15 +644,13 @@ for (num_clus in seq(2, 15)){
 }
 #+END_SRC
 
-
-# In questo caso pero' bisogna cercare il numero di cluster ideale, e per fare questo effettiamo il cluster per ciascun k da 2 da 15 e plottiamo le loro misure betweenss e scegliamo un k in base al plot.
-# Nella Figura [[fig:kmean_k]] scegliamo il k=4 per non ``overfittare'' il cluster.
-
 #+BEGIN_SRC R :session :exports results :results graphics file :file images/cluster_selection.png
-data.frame(number_of_cluster = seq(2, 15),
+data.frame(number_of_cluster = factor(seq(2, 15)),
            sil = ncluster_score) %>%
   ggplot(aes(x = number_of_cluster, y = ncluster_score)) +
-  geom_line() + geom_point() +
+  # geom_line(aes(x = factor(2:15))) +
+  geom_point(size = 3) +
+  geom_line(aes(x = 1:14, y = ncluster_score)) +
   geom_vline(aes(xintercept = 4), color="red",
              alpha=0.4) +
   xlab("Number of Clusters K") + ylab("Distance Between") +
@@ -640,8 +663,6 @@ data.frame(number_of_cluster = seq(2, 15),
 #+RESULTS:
 [[file:images/cluster_selection.png]]
 
-
-# Nella tabella seguente si mostrano le misure ottentute dal cluster.
 
 #+BEGIN_SRC R :session :exports results :results table :rownames yes
 cluster <- factoextra::hkmeans(data, 4, iter.max = 50)
@@ -693,16 +714,14 @@ table(clus, HomOrHet)
 |-----+---------------+-------------|
 | C_1 |             4 |          18 |
 | C_2 |             4 |           8 |
-| C_3 |             2 |           0 |
-| C_4 |             8 |           0 |
+| C_3 |             8 |           0 |
+| C_4 |             2 |           0 |
 
-# Anche il questo caso il cluster ottiene performance decenti, ma il primo modello riusciva a distinguire le due immagini in una maniera piu' decente e con meno cluster.
+Il modello è riuscito ad individuare 3 cluster ben distinti, 2 per le prove eterogenee (C_3 e C_4) e 1 per le prove omogenee (C_1).
+Il /cluster 2/ invece ha un contenuto ambiguo, che comprende osservazioni di entrambi i gruppi.
+Questo si verifica  anche a causa della similarità tra distribuzione delle variabili condizionati alla lesione (figura [[fig:eda]]).
 
-Il KKmeans è riuscito ad individuare 3 cluster, 2 per le prove eterogenee e 1 per le prove omogenee ben distinti, mentre /cluster 2/ puo' essere visto come cluster contente prove ambigue in questo caso.
-
-La non separazione totale delle due tipologie di lesioni è dovuta anche alla similarità tra distribuzione delle variabili condizionati alla lesione (figura [[fig:eda]]).
-
-Nonostante, il miglioramento di HK-Means rispetto al modello DBScan, la capacità predittiva dei modelli /unsupervised/, paragonati a quello /supervised/ presentato precedentemente, è nettamente inferiore.
+Nonostante il miglioramento di HK-Means rispetto al modello DBScan, la capacità predittiva dei modelli /unsupervised/, paragonati a quello /supervised/ presentato precedentemente, è nettamente inferiore.
 Inoltre, lavorando nello spazio delle componenti principali, l'interpretabilità del modello risulta difficile anche per un esperto di dominio.
 #+LATEX: \newpage
 
@@ -711,8 +730,8 @@ Con questo Progetto si è costruito un modello statistico /supervised/ efficace 
 Per costruirlo è stato sufficiente estrapolare dalle immagini segmentate delle semplici /features/, veloci da calcolare e facili da interpretare.
 Si è quindi confrontato questo modello con uno /unsupervised/, confermando la superiorità del primo sia per bontà di previsione sia per facilità di interpretazione.
 
-Per migliorare il modello si potrebbe, a livello teorico, usare un numero maggiore di dati per la stima dei parametri e per selezionare le /features/ da includere; tuttavia questo non è sempre possibile in ambito medico, data la forte difficoltà e l'alto costo nell'ottenere una più grande quantità di dati.
-Inoltre, con un numero maggiore di dati, è possibile utilizzare modelli più complessi che considerino anche interazioni tra le variabili, senza rischiare di perdere capacità di generalizzazione.
+Per migliorare il modello si potrebbe, a livello teorico, usare un maggior numero di dati per stimare i parametri e per selezionare le /features/ da includere; tuttavia questo non è sempre possibile in ambito medico, data la forte difficoltà e l'alto costo nell'ottenere una più grande quantità di dati.
+Inoltre, con un numero maggiore di dati è possibile utilizzare modelli più complessi che considerino anche interazioni tra le variabili o /pattern/ non lineari, senza rischiare di perdere capacità di generalizzazione.
 
 #+BEGIN_SRC R :session :tangle yes :exports none :results none
 summary(mod_full)
@@ -720,7 +739,8 @@ summary(mod_full)
 
 
 * Bibliografia :ignore:
-#+LATEX: \newpage
+# #+LATEX: \newpage
+#+LATEX: \vspace{1.5in}
 #+LATEX: \nocite{*}
 bibliographystyle:unsrt
 bibliography:./bibliografia.bib
