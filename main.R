@@ -107,12 +107,31 @@ data <- data.pca$x[,1:4]
 
 cluster <- dbscan::dbscan(data, 1.9)
 
-ncluster_score <- c()
-for (num_clus in seq(2, 15)){
-  cluster <- factoextra::hkmeans(data, num_clus)
-  # Calculate silhuoette based on the mode of the cluster.
-  ncluster_score <- c(ncluster_score,
-                      cluster$betweenss)
+cluster <- factoextra::hkmeans(data, 4, iter.max = 50)
+tp <- 0
+tn <- 0
+fp <- 0
+fn <- 0
+for (i in seq(1,4)){
+  index <- which(cluster$cluster == i)
+  in_clus <- features$y[index]
+  homs <- as.numeric(table(in_clus)["0"])
+  hets <- as.numeric(table(in_clus)["1"])
+  if (homs > hets){
+    tn <- tn + homs
+    fp <- fp + hets
+  } else {
+    tp <- tp + hets
+    fn <- fn + homs
+  }
 }
+acc <- (tp + tn) / (tp + fn + fp + tn)
+rec <- tp / (tp + fn)
+prec <- tp / (tp + fp)
+f_1 <- 2 * rec * prec / (rec + prec)
+
+round(data.frame(c(acc, prec, rec, f_1),
+           row.names=c("accuracy", "precision",
+                       "recall", "f_1")),3)
 
 summary(mod_full)
