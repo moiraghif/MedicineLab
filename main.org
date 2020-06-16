@@ -638,7 +638,7 @@ La bontà del raggruppamento (intesa come capacità predittiva) è invece riassu
 [[hkmeans_performance]].
 
 
-#+BEGIN_SRC R :session :results none :exports none
+#+BEGIN_SRC R :session :tangle yes :results none :exports none
 ncluster_score <- c()
 for (num_clus in seq(2, 15)){
   cluster <- factoextra::hkmeans(data, num_clus)
@@ -668,8 +668,13 @@ data.frame(number_of_cluster = factor(seq(2, 15)),
 [[file:images/cluster_selection.png]]
 
 
+<<<<<<< HEAD
 #+BEGIN_SRC R :session :tangle yes :exports results :results table :rownames yes
 cluster <- factoextra::hkmeans(data, 5, iter.max = 50)
+=======
+#+BEGIN_SRC R :session :exports results :results table :rownames yes
+cluster <- factoextra::hkmeans(data, 4, iter.max = 50)
+>>>>>>> parent of 4271ac9... mistagled some sections
 tp <- 0
 tn <- 0
 fp <- 0
