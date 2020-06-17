@@ -1,0 +1,15 @@
+#+TITLE: Data Science Lab in Medicine
+
+Costruzione di un modello predittivo (in Python e R) per classificare i tumori omogenei da quelli eterogenei.
+
+- Leggi il [[https://github.com/moiraghif/MedicineLab/blob/master/main.pdf][report]]
+- Guarda la [[https://prezi.com/p/6qbl2scbkrpg/?present=1][presentazione]]
+
+* Esecuzione del Workflow
+Il /workflow/ è stato costruito con [[https://orgmode.org/worg/org-contrib/babel/intro.html][Emacs ORG-mode]] grazie al quale è possibile garantire la riproducibilità dei risultati: si veda il file [[https://github.com/moiraghif/MedicineLab/blob/master/main.org][main.org]] per il calcolo delle prestazioni e altri dettagli riguardanti il codice.
+È inoltre disponibile un [[https://github.com/moiraghif/MedicineLab/blob/master/anaconda_environment.yml][ambiente anaconda]] con tutte le dipendenze:
+#+begin_src bash
+conda create --file anaconda_environment.yml
+conda activate medical
+bash ./execute-all.sh
+#+end_src
