@@ -27,7 +27,7 @@ new_cols <- setdiff(colnames(features),
                     c("Maximum", "Variance",
                       "Maximum3DDiameter",
                       "MinorAxisLength",
-                      "Contrast", "Sphericity"))
+                      "Sphericity"))
 
 features <- features[, new_cols]
 
@@ -98,21 +98,16 @@ features <- features %>%
             ~(scale(.) %>% as.vector))
 features$y <- as.factor(features$y)
 
-corr <- cor(features %>% dplyr::select(-y))
-rejected <- colnames(features)[caret::findCorrelation(corr,
-                                                      cutoff=0.8)]
-features <- features %>%
-              dplyr::select(-all_of(rejected))
+features <- features[, c(accepted, "y")]
 
 unsupervised_features <- features[, 1:(dim(features)[2] - 1)]
 data.pca <- prcomp(unsupervised_features)
 
-data <- data.pca$x[,1:5]
+data <- data.pca$x[,1:4]
 
-cluster <- dbscan::dbscan(data, 2.75)
+cluster <- dbscan::dbscan(data, 1.9)
 
-<<<<<<< HEAD
-cluster <- factoextra::hkmeans(data, 5, iter.max = 50)
+cluster <- factoextra::hkmeans(data, 4, iter.max = 50)
 tp <- 0
 tn <- 0
 fp <- 0
@@ -129,14 +124,14 @@ for (i in seq(1,4)){
     tp <- tp + hets
     fn <- fn + homs
   }
-=======
-ncluster_score <- c()
-for (num_clus in seq(2, 15)){
-  cluster <- factoextra::hkmeans(data, num_clus)
-  # Calculate silhuoette based on the mode of the cluster.
-  ncluster_score <- c(ncluster_score,
-                      cluster$betweenss)
->>>>>>> parent of 4271ac9... mistagled some sections
 }
+acc <- (tp + tn) / (tp + fn + fp + tn)
+rec <- tp / (tp + fn)
+prec <- tp / (tp + fp)
+f_1 <- 2 * rec * prec / (rec + prec)
+
+round(data.frame(c(acc, prec, rec, f_1),
+           row.names=c("accuracy", "precision",
+                       "recall", "f_1")),3)
 
 summary(mod_full)

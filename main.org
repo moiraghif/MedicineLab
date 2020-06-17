@@ -179,7 +179,7 @@ round(head(features[, 1:4]), 3)
 
 
 Tuttavia il numero di /features/ estratte è ancora elevato rispetto al numero di dati a disposizione (la matrice di /input/ ha dimensioni $44 \times 20$).
-Si effettua dunque una prima selezione delle /features/ tramite il test di Mann-Whitney, equivalente non parametrico del t-test (i risultati sono riassunti nella tabella [[tbl_mann_whitney]]), per escludere le variabili che, prese singolarmente, hanno una significatività minore del 95%.
+Si effettua dunque una prima selezione delle /features/ tramite il test di Mann-Whitney, equivalente non parametrico del t-test (i risultati sono riassunti nella tabella [[tbl_mann_whitney]]), per escludere le variabili che, prese singolarmente, hanno una significatività minore del 90%.
 
 #+BEGIN_SRC R :session :tangle yes :exports none :results none
 score <- c()
@@ -250,14 +250,14 @@ ggcorrplot::ggcorrplot(
 #+RESULTS:
 [[file:images/corrplot.png]]
 
-Dal correlogramma (figura [[features_corr]]) si deduce quali variabili escludere (=Maximum=, =Variance=, =Maximum3DDiameter=, =MinorAxisLength=, =Contrast= e =Sphericity=): la matrice risultante ha una dimensionalità ridotta ($44 \times 5$), adeguata per la costruzione del modello.
+Dal correlogramma (figura [[features_corr]]) si deduce quali variabili escludere (=Maximum=, =Variance=, =Maximum3DDiameter=, =MinorAxisLength=, e =Sphericity=): la matrice risultante ha una dimensionalità ridotta ($44 \times 5$), adeguata per la costruzione del modello.
 
 #+BEGIN_SRC R :session :tangle yes :exports none :results none
 new_cols <- setdiff(colnames(features),
                     c("Maximum", "Variance",
                       "Maximum3DDiameter",
                       "MinorAxisLength",
-                      "Contrast", "Sphericity"))
+                      "Sphericity"))
 
 features <- features[, new_cols]
 #+END_SRC
@@ -495,7 +495,7 @@ conf_matrix <- table(previsions)
 
 * Modello /unsupervised/
 
-Dopo aver standardizzato le variabili, si eliminano quelle con coefficiente di correlazione molto alto, per non introdurre troppo rumore nel modello.
+Dopo aver standardizzato le variabili che hanno passato il test di Mann-Whitney (escludendo le rimanenti che si presume apportino solo rumore nella distribuzione di dati), le si utilizza per effettuare la divisone in /clusters/.
 Si ipotizza così che i tumori tra loro simili appartengano alla stessa classe.
 
 # Considerando le variabili che hanno passato il test di Mann-Whitney, dopo averle standardizzate, si effettua una divisione in /clusters/ con l'ipotesi che sia possibile raggruppare le due tipologie di tumore.
@@ -509,16 +509,12 @@ features <- features %>%
             ~(scale(.) %>% as.vector))
 features$y <- as.factor(features$y)
 
-corr <- cor(features %>% dplyr::select(-y))
-rejected <- colnames(features)[caret::findCorrelation(corr,
-                                                      cutoff=0.8)]
-features <- features %>%
-              dplyr::select(-all_of(rejected))
+features <- features[, c(accepted, "y")]
 #+END_SRC
 
-Le immagini di tumori quindi sono collocate in uno spazio vettoriale in base al risultato della /Principal Component Analysis/ (PCA): si selezionano così le prime 5 componenti, che spiegano almeno il 5% della varianza della distribuzione.
+Le immagini di tumori quindi sono collocate in uno spazio vettoriale in base al risultato della /Principal Component Analysis/ (PCA): si selezionano così le prime 4 componenti, che spiegano almeno il 5% della varianza della distribuzione.
 Così, operando su una matrice di dimensioni ridotte, si riduce la quantità di rumore data dall'elevato numero di variabili (a cui si esclude la variabile risposta =y=, usata poi per calcolare la bontà del modello).
-Dalla figura [[fig:pca_plot]] infatti si evince che all'aumentare del numero di componenti considerate la percentuale di varianza spiegata dalla componente decresce: la soglia del 5% è un compromesso tra il segnale colto dal modello e la sua complessità (per i dettagli vedere la tabella [[table_pca]]). Le 5 componenti scelte spiegano complessivamente circa il 90% della varianza totale.
+Dalla figura [[fig:pca_plot]] infatti si evince che all'aumentare del numero di componenti considerate la percentuale di varianza spiegata dalla componente decresce: la soglia del 5% è un compromesso tra il segnale colto dal modello e la sua complessità (per i dettagli vedere la tabella [[table_pca]]). Le 4 componenti scelte spiegano complessivamente circa il 90% della varianza totale.
 
 
 #+BEGIN_SRC R :session :exports results :results graphics file :file images/pca_unsupervised.png
@@ -555,19 +551,19 @@ round(summary(data.pca)$importance[, 1:5], 3)
 #+LABEL: table_pca
 #+CAPTION: Alcune statistiche sulle prime componenti principali.
 #+RESULTS:
-|                        |   PC1 |   PC2 |   PC3 |   PC4 |   PC5 |
-|------------------------+-------+-------+-------+-------+-------|
-| Standard deviation     | 1.912 |   1.6 | 1.391 |     1 | 0.839 |
-| Proportion of Variance | 0.332 | 0.233 | 0.176 | 0.091 | 0.064 |
-| Cumulative Proportion  | 0.332 | 0.565 | 0.741 | 0.832 | 0.896 |
+|                        |  PC1 |   PC2 |   PC3 |   PC4 |   PC5 |
+|------------------------+------+-------+-------+-------+-------|
+| Standard deviation     | 1.95 | 1.552 | 1.329 | 0.959 | 0.689 |
+| Proportion of Variance | 0.38 | 0.241 | 0.177 | 0.092 | 0.047 |
+| Cumulative Proportion  | 0.38 | 0.621 | 0.798 |  0.89 | 0.937 |
 
 
 Nello spazio della PCA si effettua un raggruppamento usando l'algoritmo DBScan, basato sulla densità delle osservazioni.
-La figura [[fig:DBScan_eps]] suggerisce un parametro $\varepsilon \in (2.5, 3)$ (lo si vede dal salto nella figura con 5-NN), si opta per il valore medio: questa configurazione sarà usata per la costruzione del modello.
+La figura [[fig:DBScan_eps]] suggerisce un parametro $\varepsilon \in (1.8, 2)$ (con 5-NN), si opta per il valore medio: questa configurazione sarà usata per la costruzione del modello.
 
 
 #+BEGIN_SRC R :session :exports results :results graphics file :file images/dbscan_eps_selection.png
-data <- data.pca$x[, 1:5]
+data <- data.pca$x[, 1:4]
 data_out <- dbscan::kNNdist(data, k = 5)
 data_order <- order(data_out)
 
@@ -576,8 +572,8 @@ data.frame(x = seq(1, length(data_out)),
            hom_het = features$y[data_order]) %>%
 ggplot2::ggplot(aes(x = x, y = y)) +
   geom_line() +
-  geom_hline(aes(yintercept = 2.5), col = "red") +
-  geom_hline(aes(yintercept = 3), col = "blue") +
+  geom_hline(aes(yintercept = 1.8), col = "red") +
+  geom_hline(aes(yintercept = 2.0), col = "blue") +
   geom_point(size = 2, alpha = 0.3) +
   xlab("Sample of points sorted by distance") +
   ylab("5-NN distance") +
@@ -592,9 +588,9 @@ ggplot2::ggplot(aes(x = x, y = y)) +
 [[file:images/dbscan_eps_selection.png]]
 
 #+BEGIN_SRC R :session :tangle yes :exports none :results none
-data <- data.pca$x[,1:5]
+data <- data.pca$x[,1:4]
 
-cluster <- dbscan::dbscan(data, 2.75)
+cluster <- dbscan::dbscan(data, 1.9)
 #+END_SRC
 
 #+BEGIN_SRC R :session :exports results :results table :rownames yes
@@ -608,10 +604,10 @@ round(t(out), 3)
 #+LABEL: dbscan_performance
 #+CAPTION: Indici di bontà per la clusterizzazione con DBScan.
 #+RESULTS:
-| accuracy  | 0.773 |
-| precision |   0.5 |
-| recall    |   0.9 |
-| f_1       | 0.643 |
+| accuracy  | 0.795 |
+| precision | 0.556 |
+| recall    | 0.909 |
+| f_1       |  0.69 |
 
 
 #+BEGIN_SRC R :session :exports results :results table :rownames yes :colnames yes
@@ -625,24 +621,24 @@ table(clus, HomOrHet)
 #+RESULTS:
 |     | heterogeneous | homogeneous |
 |-----+---------------+-------------|
-| C_0 |             9 |           1 |
-| C_1 |             9 |          25 |
+| C_0 |            10 |           1 |
+| C_1 |             8 |          25 |
 
 Nonostante le buone /performance/ del modello (riassunte nella tabella [[dbscan_performance]]), si nota che il secondo /cluster/ $C_1$ contiene un numero non indifferente, pur rimanendo ridotto, di immagini eterogenee (tabella [[dbscan_confusion_matrix]]).
 L'algoritmo è riuscito a individuare un /cluster/ ($C_0$, il cluster di elementi rigettati) ben definito, considerando la variabile risposta.
 
 Si tenta un altro approccio, con l'algoritmo /HK-means/, versione gerarchica del ben più noto /K-means/.
 L'algoritmo è quindi testato con un numero di /cluster/ $k$ da 2 a 15, calcolando per ciascuno la distanza nei gruppi (/distance between/).
-La figura [[fig:kmean_k]] mostra graficamente il procedimento: si sceglie $k = 5$ per evitare /overfitting/ dei dati, siccome il tasso di miglioramento per $k > 5$ decresce fortemente.
+La figura [[fig:kmean_k]] mostra graficamente il procedimento: si sceglie $k = 4$ per evitare /overfitting/ dei dati, siccome il tasso di miglioramento per $k > 4$ decresce fortemente.
 La bontà del raggruppamento (intesa come capacità predittiva) è invece riassunta nella tabella
 [[hkmeans_performance]].
 
 
-#+BEGIN_SRC R :session :tangle yes :results none :exports none
+#+BEGIN_SRC R :session :results none :exports none
 ncluster_score <- c()
 for (num_clus in seq(2, 15)){
   cluster <- factoextra::hkmeans(data, num_clus)
-  # Calculate between based on the mode of the cluster.
+  # Calculate silhuoette based on the mode of the cluster.
   ncluster_score <- c(ncluster_score,
                       cluster$betweenss)
 }
@@ -668,13 +664,8 @@ data.frame(number_of_cluster = factor(seq(2, 15)),
 [[file:images/cluster_selection.png]]
 
 
-<<<<<<< HEAD
 #+BEGIN_SRC R :session :tangle yes :exports results :results table :rownames yes
-cluster <- factoextra::hkmeans(data, 5, iter.max = 50)
-=======
-#+BEGIN_SRC R :session :exports results :results table :rownames yes
 cluster <- factoextra::hkmeans(data, 4, iter.max = 50)
->>>>>>> parent of 4271ac9... mistagled some sections
 tp <- 0
 tn <- 0
 fp <- 0
@@ -703,12 +694,12 @@ round(data.frame(c(acc, prec, rec, f_1),
 #+END_SRC
 
 #+LABEL: hkmeans_performance
-#+CAPTION: Indici di bontà per HK-Means con $k = 5$.
+#+CAPTION: Indici di bontà per HK-Means con $k = 4$.
 #+RESULTS:
-| accuracy  | 0.786 |
-| precision | 0.438 |
+| accuracy  | 0.818 |
+| precision | 0.556 |
 | recall    |     1 |
-| f_1       | 0.609 |
+| f_1       | 0.714 |
 
 #+BEGIN_SRC R :session :exports results :results table :rownames yes :colnames yes
 HomOrHet <- ifelse(features$y == 0, "homogeneous", "heterogeneous")
@@ -717,21 +708,20 @@ table(clus, HomOrHet)
 #+END_SRC
 
 #+LABEL: hkmeans_clusters
-#+CAPTION: Il modello ha identificato tre /cluster/ definiti (C_1, C_4 e C_5), considerando la variabile risposta;
+#+CAPTION: Il modello ha identificato tre /cluster/ definiti (C_1, C_3 e C_4), considerando la variabile risposta;
 #+RESULTS:
 |     | heterogeneous | homogeneous |
 |-----+---------------+-------------|
-| C_1 |             0 |          10 |
-| C_2 |             5 |           8 |
-| C_3 |             4 |           8 |
-| C_4 |             7 |           0 |
-| C_5 |             2 |           0 |
+| C_1 |             4 |          18 |
+| C_2 |             4 |           8 |
+| C_3 |             8 |           0 |
+| C_4 |             2 |           0 |
 
-Il modello è riuscito ad individuare 3 cluster ben distinti, 2 per le prove eterogenee (C_4 e C_5) e 1 per le prove omogenee (C_1).
-Il /cluster 2/ e /cluster 3/ invece hanno un contenuto ambiguo, che comprende osservazioni di entrambi i gruppi.
+Il modello è riuscito ad individuare 3 cluster ben distinti, 2 per le prove eterogenee (C_3 e C_4) e 1 per le prove omogenee (C_1).
+Il /cluster 2/ invece ha un contenuto ambiguo, che comprende osservazioni di entrambi i gruppi.
 Questo si verifica  anche a causa della similarità tra distribuzione delle variabili condizionati alla lesione (figura [[fig:eda]]).
 
-Dopo aver provato sia HK-Means che DBScan, si deduce che la capacità predittiva dei modelli /unsupervised/, paragonati a quello /supervised/ presentato precedentemente, è nettamente inferiore.
+Nonostante il miglioramento di HK-Means rispetto al modello DBScan, la capacità predittiva dei modelli /unsupervised/, paragonati a quello /supervised/ presentato precedentemente, è nettamente inferiore.
 Inoltre, lavorando nello spazio delle componenti principali, l'interpretabilità del modello risulta difficile anche per un esperto di dominio.
 #+LATEX: \newpage
 
