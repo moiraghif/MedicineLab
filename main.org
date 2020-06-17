@@ -179,7 +179,7 @@ round(head(features[, 1:4]), 3)
 
 
 Tuttavia il numero di /features/ estratte è ancora elevato rispetto al numero di dati a disposizione (la matrice di /input/ ha dimensioni $44 \times 20$).
-Si effettua dunque una prima selezione delle /features/ tramite il test di Mann-Whitney, equivalente non parametrico del t-test (i risultati sono riassunti nella tabella [[tbl_mann_whitney]]), per escludere le variabili che, prese singolarmente, hanno una significatività minore del 90%.
+Si effettua dunque una prima selezione delle /features/ tramite il test di Mann-Whitney, equivalente non parametrico del t-test (i risultati sono riassunti nella tabella [[tbl_mann_whitney]]), per escludere le variabili che, prese singolarmente, non risultano significative (con \alpha = 5%).
 
 #+BEGIN_SRC R :session :tangle yes :exports none :results none
 score <- c()
