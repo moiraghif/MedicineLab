@@ -648,10 +648,10 @@ for (num_clus in seq(2, 15)){
 data.frame(number_of_cluster = factor(seq(2, 15)),
            sil = ncluster_score) %>%
   ggplot(aes(x = number_of_cluster, y = ncluster_score)) +
-  # geom_line(aes(x = factor(2:15))) +
+                                        # geom_line(aes(x = factor(2:15))) +
   geom_point(size = 3) +
   geom_line(aes(x = 1:14, y = ncluster_score)) +
-  geom_vline(aes(xintercept = 4), color="red",
+  geom_vline(aes(xintercept = "4"), color="red",
              alpha=0.4) +
   xlab("Number of Clusters K") + ylab("Distance Between") +
   ggtitle("Selection of number of cluster") +
